@@ -1,8 +1,9 @@
 // dns.cpp
 #include "DNS.h"
-
+#include <filesystem>
+namespace fs = std::filesystem;
 // 全局变量定义
-int n_x0, n_y0;
+
 double dx, dy, vx;
 double velocity;
 double l2_norm_x = 0.0, l2_norm_y = 0.0, l2_norm_p = 0.0;
@@ -153,6 +154,114 @@ for(int i = 0; i <= ny; i++) {
         }
     }
 }
+}
+
+
+void Mesh::saveToFolder(const std::string& folderPath) const {
+    // 创建文件夹
+    if (!fs::exists(folderPath)) {
+        fs::create_directory(folderPath);
+    }
+
+    // 保存网格参数
+    std::ofstream paramFile(folderPath + "/params.txt");
+    paramFile << nx << " " << ny << "\n";
+    paramFile << dx << " " << dy << "\n";
+    paramFile.close();
+
+    // 保存矩阵数据
+    std::ofstream bcFile(folderPath + "/bctype.dat");
+    bcFile << bctype;
+    bcFile.close();
+
+    std::ofstream zoneFile(folderPath + "/zoneid.dat");
+    zoneFile << zoneid;
+    zoneFile.close();
+
+    // 保存区域速度
+    std::ofstream zoneuvFile(folderPath + "/zoneuv.txt");
+    for(size_t i = 0; i < zoneu.size(); i++) {
+        zoneuvFile << zoneu[i] << " " << zonev[i] << "\n";
+    }
+    zoneuvFile.close();
+}
+
+// 从文件夹构造网格
+Mesh::Mesh(const std::string& folderPath) {
+    if (!fs::exists(folderPath)) {
+        throw std::runtime_error("网格文件夹不存在!");
+    }
+
+    // 读取网格参数
+    std::ifstream paramFile(folderPath + "/params.txt");
+    if (!paramFile) {
+        throw std::runtime_error("无法打开参数文件!");
+    }
+    
+    // 读取基本参数
+    paramFile >> nx >> ny >> ::dx >> ::dy;
+    paramFile.close();
+
+    // 初始化所有矩阵
+    u.resize(ny + 2, nx + 2);
+    u_star.resize(ny + 2, nx + 2);
+    u0.resize(ny + 2, nx + 2);
+    v.resize(ny + 2, nx + 2);
+    v_star.resize(ny + 2, nx + 2);
+    v0.resize(ny + 2, nx + 2);
+    p.resize(ny + 2, nx + 2);
+    p_star.resize(ny + 2, nx + 2);
+    p_prime.resize(ny + 2, nx + 2);
+    u_face.resize(ny + 2, nx + 1);
+    v_face.resize(ny + 1, nx + 2);
+    bctype.resize(ny + 2, nx + 2);
+    zoneid.resize(ny + 2, nx + 2);
+    interid.resize(ny + 2, nx + 2);
+
+    // 初始化为零
+    initializeToZero();
+
+    // 读取边界类型
+    std::ifstream bcFile(folderPath + "/bctype.dat");
+    if (!bcFile) {
+        throw std::runtime_error("无法打开边界类型文件!");
+    }
+    for(int i = 0; i < bctype.rows(); i++) {
+        for(int j = 0; j < bctype.cols(); j++) {
+            bcFile >> bctype(i,j);
+        }
+    }
+    bcFile.close();
+
+    // 读取区域ID
+    std::ifstream zoneFile(folderPath + "/zoneid.dat");
+    if (!zoneFile) {
+        throw std::runtime_error("无法打开区域ID文件!");
+    }
+    for(int i = 0; i < zoneid.rows(); i++) {
+        for(int j = 0; j < zoneid.cols(); j++) {
+            zoneFile >> zoneid(i,j);
+        }
+    }
+    zoneFile.close();
+
+    // 读取区域速度
+    std::ifstream zoneuvFile(folderPath + "/zoneuv.txt");
+    if (!zoneuvFile) {
+        throw std::runtime_error("无法打开区域速度文件!");
+    }
+    double u, v;
+    while(zoneuvFile >> u >> v) {
+        zoneu.push_back(u);
+        zonev.push_back(v);
+    }
+    zoneuvFile.close();
+
+    // 创建内部点编号
+    createInterId();
+    
+    // 初始化边界条件
+    initializeBoundaryConditions();
 }
 // Equation 类的构造函数
 Equation::Equation(Mesh& mesh_)

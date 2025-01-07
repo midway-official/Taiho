@@ -34,7 +34,7 @@ public:
 
     Mesh() = default;  // 默认构造函数
     Mesh(int n_y, int n_x);  // 参数化构造函数
-
+    Mesh(const std::string& folderPath);  // 网格文件夹构造函数
     void initializeToZero(); // 初始化所有矩阵为零
     void displayMatrix(const MatrixXd& matrix, const std::string& name) const; // 显示矩阵内容
     void displayAll() const; // 显示所有矩阵
@@ -42,6 +42,10 @@ public:
     void setBlock(int x1, int y1, int x2, int y2, double bcValue, double zoneValue); // 设置区域边界条件
     void setZoneUV(int zoneIndex, double u, double v); // 设置区域速度
     void initializeBoundaryConditions();  // 初始化边界条件
+    // 保存网格到文件夹
+    void saveToFolder(const std::string& folderPath) const;
+    
+    
 };
 class Equation {
 public:
