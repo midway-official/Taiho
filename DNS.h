@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <vector>
+#include "mpi.h"
 
 using namespace Eigen;
 using namespace std;
@@ -17,6 +18,9 @@ extern double dx, dy, vx;
 extern double velocity;
 extern double l2_norm_x, l2_norm_y, l2_norm_p;
 extern double a, b;
+extern double alpha_uv;
+// 在其他函数声明后添加
+void printMatrix(const MatrixXd& matrix, const string& name, int precision = 4);
 // Mesh 类声明
 class Mesh {
 public:
@@ -31,7 +35,7 @@ public:
     vector<int> interi, interj;  // 新增位置向量
     vector<double> zoneu;
     vector<double> zonev;
-
+    
     Mesh() = default;  // 默认构造函数
     Mesh(int n_y, int n_x);  // 参数化构造函数
     Mesh(const std::string& folderPath);  // 网格文件夹构造函数
@@ -82,5 +86,8 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time);
 //离散动量方程
 
 void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re);
-
+//竖向分割网格
+vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n);
+//合并网格
+Mesh mergeMeshesWithoutInterface(const std::vector<Mesh>& sub_meshes);
 #endif // DNS_H
