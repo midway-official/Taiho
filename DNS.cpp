@@ -8,7 +8,7 @@ double dx, dy, vx;
 double velocity;
 double l2_norm_x = 0.0, l2_norm_y = 0.0, l2_norm_p = 0.0;
 double a, b;
-double alpha_uv = 10e-3;  
+double alpha_uv = 0.01;  
 void printMatrix(const MatrixXd& matrix, const string& name, int precision ) {
     // 设置输出格式
     IOFormat fmt(precision, 0, ", ", "\n", "[", "]");
@@ -397,6 +397,7 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
                     + 0.25*alpha_uv*(p(i,j+2) - p(i,j))*dy*dx/A_p(i,j+1)*dx
                     - 0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i,j+1))*(p(i,j+1) - p(i,j))*dy*dx/dx;
             }
+            
         }
     }
     
@@ -531,7 +532,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
     }
 
     // 更新压力场
-    double alpha_p = 0.3;  // 压力松弛因子
+    double alpha_p = 0.1;  // 压力松弛因子
     p_star = p + alpha_p * p_prime;
 }
 
@@ -836,9 +837,9 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                 } 
                 else if(bctype(i,j-1) ==-3) {  // 其他边界
                     A_e(i,j) = 0;
-                    Ap_temp += D_e + max(0.0,F_e);  // 移除系数2
-                    source_x_temp += alpha_uv*u_star(i,j-1)*(D_e + max(0.0,-F_w));  // 移除系数2
-                    source_y_temp += alpha_uv*v_star(i,j-1)*(D_e + max(0.0,-F_w));  // 移除系数2
+                    Ap_temp += D_e + max(0.0,-F_w);  // 移除系数2
+                    source_x_temp += alpha_uv*u_star(i,j-1)*(D_e + max(0.0,F_w));  // 移除系数2
+                    source_y_temp += alpha_uv*v_star(i,j-1)*(D_e + max(0.0,F_w));  // 移除系数2
                 }
                 else if(bctype(i,j-1) > 0) {  //wall边界
                     A_w(i,j) = 0;
@@ -860,7 +861,7 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
 
                 else if(bctype(i-1,j) ==-3) {  // 其他边界
                     A_e(i,j) = 0;
-                    Ap_temp += D_e + max(0.0,F_e);  // 移除系数2
+                    Ap_temp += D_e + max(0.0,F_n);  // 移除系数2
                     source_x_temp += alpha_uv*u_star(i-1,j)*(D_e + max(0.0,-F_n));  // 移除系数2
                     source_y_temp += alpha_uv*v_star(i-1,j)*(D_e + max(0.0,-F_n));  // 移除系数2
                 }
@@ -883,9 +884,9 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                 }
                 else if(bctype(i+1,j) ==-3) {  // 其他边界
                     A_e(i,j) = 0;
-                    Ap_temp += D_e + max(0.0,F_e);  // 移除系数2
-                    source_x_temp += alpha_uv*u_star(i+1,j)*(D_e + max(0.0,-F_s));  // 移除系数2
-                    source_y_temp += alpha_uv*v_star(i+1,j)*(D_e + max(0.0,-F_s));  // 移除系数2
+                    Ap_temp += D_e + max(0.0,-F_s);  // 移除系数2
+                    source_x_temp += alpha_uv*u_star(i+1,j)*(D_e + max(0.0,F_s));  // 移除系数2
+                    source_y_temp += alpha_uv*v_star(i+1,j)*(D_e + max(0.0,F_s));  // 移除系数2
                 }
                  else if(bctype(i+1,j) > 0) {  // wall边界
                     A_s(i,j) = 0;
