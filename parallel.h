@@ -14,5 +14,9 @@ void recvMatrixColumn(MatrixXd& dst_matrix, int dst_col,
                      int src_rank, int tag = 0);
 //交互网格数据
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs);
+void gsstep(Equation& equation, double& l2_norm, Eigen::MatrixXd& phi);
+void parallelGs_u(Equation& equ_u0, Equation& equ_v0, double epsilon_uv, double& l2_norm_x, Mesh& mesh, int rank, int num_procs, int max_iter);
+void parallelGs_v(Equation& equ_v0, Equation& equ_u0, double epsilon_uv, double& l2_norm_x, Mesh& mesh, int rank, int num_procs, int max_iter);
 
+void parallelGs_p(Equation& equ_p0, Equation& equ_u0, double epsilon_uv, double& l2_norm_x, Mesh& mesh, int rank, int num_procs, int max_iter);
 #endif // PARALLEL_H

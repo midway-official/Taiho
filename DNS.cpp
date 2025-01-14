@@ -8,7 +8,7 @@ double dx, dy, vx;
 double velocity;
 double l2_norm_x = 0.0, l2_norm_y = 0.0, l2_norm_p = 0.0;
 double a, b;
-double alpha_uv = 0.01;  
+double alpha_uv = 0.1;  
 void printMatrix(const MatrixXd& matrix, const string& name, int precision ) {
     // 设置输出格式
     IOFormat fmt(precision, 0, ", ", "\n", "[", "]");
@@ -506,7 +506,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
     int n_x = mesh.nx;
     int n_y = mesh.ny;
 
-    // 遍历所有网格点
+    /*// 遍历所有网格点
     for(int i = 0; i <= n_y + 1; i++) {
         for(int j = 0; j <= n_x + 1; j++) {
             if(bctype(i,j) > 0) {  // 边界点
@@ -542,7 +542,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
                 }
             }
         }
-    }
+    }*/
 
     // 更新压力场
     double alpha_p = 0.1;  // 压力松弛因子

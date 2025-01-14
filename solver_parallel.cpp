@@ -173,19 +173,10 @@ int main(int argc, char* argv[])
     Equation equ_v(mesh);
     Equation equ_p(mesh);
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
-    // 循环执行
-    for (int i = 0; i <= timesteps; ++i) { 
-        
-        cout<<"时间步长 "<< i <<std::endl;
-        
-       
-       //记录上一个时间步长的u v
-       mesh.u0 = mesh.u;
-       mesh.v0 = mesh.v;
-       //每步最大迭代次数
-       int max_outer_iterations=100;
+   
+       int max_outer_iterations=timesteps;
            //simple算法迭代
- 
+  
         MPI_Barrier(MPI_COMM_WORLD);
         
     for(int n=1;n<=max_outer_iterations;n++) {
@@ -231,7 +222,7 @@ int main(int argc, char* argv[])
         }
          }
 
-       
+        
         MPI_Barrier(MPI_COMM_WORLD);
         
         exchangeColumns(equ_u.A_p, rank, num_procs);
@@ -244,34 +235,14 @@ int main(int argc, char* argv[])
         
         double epsilon_p=1e-5;
         double global_l2_norm_p;
-        // 初始化压力方程求解的迭代过程
-    for (int iter2 = 0; iter2 < 3; ++iter2) {
-        // 1. 求解子域内的 p（只求解压力方程）
+        pressure_function(mesh, equ_p, equ_u);
         
-        solve(equ_p, epsilon_p, l2_norm_p, mesh.p_prime); // 对压力方程求解
-        MPI_Barrier(MPI_COMM_WORLD); // 确保所有进程同步
-        exchangeColumns(mesh.p_prime, rank, num_procs);   // 交换压力重叠区域
-        MPI_Barrier(MPI_COMM_WORLD);
-        pressure_function(mesh,equ_p,equ_u);
+        // 重新更新源项并重建矩阵
         equ_p.build_matrix();
-        // 2. 汇总全局残差
-        
-        MPI_Allreduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-        // 计算全局残差
-        global_l2_norm_p = sqrt(global_l2_norm_p);
-
-        if (rank == 0) {
-            std::cout << "Iteration " << iter2 << ": "
-                      << "Global l2 norm for pressure = " << global_l2_norm_p << std::endl;
-        }
-        
-        
-    }
+        parallelGs_p(equ_p,equ_u,1e-5,global_l2_norm_p,mesh,rank,num_procs,100);
          
          
-         
-         MPI_Barrier(MPI_COMM_WORLD); // 确保所有进程同步
+        MPI_Barrier(MPI_COMM_WORLD); // 确保所有进程同步
         exchangeColumns(mesh.p_prime, rank, num_procs); 
     
         //8压力修正
@@ -287,24 +258,17 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         
         
-        exchangeColumns(mesh.u, rank, num_procs);
-    exchangeColumns(mesh.v, rank, num_procs);
-    exchangeColumns(mesh.u0, rank, num_procs);
-    exchangeColumns(mesh.v0, rank, num_procs);
-    exchangeColumns(mesh.u_face, rank, num_procs);
-    exchangeColumns(mesh.v_face, rank, num_procs);
-    exchangeColumns(mesh.u_star, rank, num_procs);
-    exchangeColumns(mesh.v_star, rank, num_procs);
+
     exchangeColumns(mesh.p, rank, num_procs);
-    exchangeColumns(mesh.p_prime, rank, num_procs);
-    exchangeColumns(mesh.p_star, rank, num_procs);
+
+   
        
         
         MPI_Barrier(MPI_COMM_WORLD);
         //收敛性判断
         std::cout << scientific 
             << "线程 " << rank 
-            << " 时间步 " << i
+            
             << " 子域循环轮数 " << n 
          
             << " u速度残差 " << setprecision(6) << (global_l2_norm_x/mesh.internumber)
@@ -312,27 +276,13 @@ int main(int argc, char* argv[])
             << " 压力残差 " <<  setprecision(6) << (global_l2_norm_p/mesh.internumber)
             << "\n" <<  endl;
             
-       /*if((l2x/mesh.internumber) < 1e-8 & (l2y/mesh.internumber) < 1e-8 & (l2p/mesh.internumber) < 1e-8) { 
-            std::cout << "线程 " << rank << " 达到收敛条件" << std::endl;
-            
-            break;
-        
+       
          
-        }*/
   
     }
     
-    /*//显式时间推进
-    mesh.u = mesh.u0 + dt*mesh.u;
-    mesh.v = mesh.v0 + dt*mesh.v;
-    exchangeColumns(mesh.u, rank, num_procs);
-    exchangeColumns(mesh.v, rank, num_procs);
-    exchangeColumns(mesh.u0, rank, num_procs);
-    exchangeColumns(mesh.v0, rank, num_procs);
-    MPI_Barrier(MPI_COMM_WORLD);
-    sub_meshes[rank]=mesh;*/
-    
-    }
+   
+   
     
     saveMeshData(mesh,rank);
     MPI_Finalize();
