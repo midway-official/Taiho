@@ -506,7 +506,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
     int n_x = mesh.nx;
     int n_y = mesh.ny;
 
-    /*// 遍历所有网格点
+    // 遍历所有网格点
     for(int i = 0; i <= n_y + 1; i++) {
         for(int j = 0; j <= n_x + 1; j++) {
             if(bctype(i,j) > 0) {  // 边界点
@@ -542,7 +542,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
                 }
             }
         }
-    }*/
+    }
 
     // 更新压力场
     double alpha_p = 0.3;  // 压力松弛因子
