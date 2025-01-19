@@ -233,13 +233,18 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
     double r_norm = r.squaredNorm();
     double b_norm = b.squaredNorm();
     
-    // 检查零右端项
-    if (b_norm < 1e-13) {
-        x.setZero();
-        r0 = 0.0;
-        MPI_Barrier(MPI_COMM_WORLD);
-        return;
-    }
+    double local_b_norm = b_norm;
+    double global_b_norm;
+    // 使用 MPI_Allreduce 来将各个进程的 b_norm 求最大值（或总和等），确保每个进程能够看到全局的 b_norm
+MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+// 检查全局的 b_norm
+if (global_b_norm < 1e-13) {
+    x.setZero();
+    r0 = 0.0;
+    MPI_Barrier(MPI_COMM_WORLD);
+    return;  // 一旦判断为小于阈值，直接在所有进程处执行return
+}
     // 使用绝对残差判据
     double tol = epsilon * epsilon; // 直接使用给定的epsilon作为绝对收敛判据
     
