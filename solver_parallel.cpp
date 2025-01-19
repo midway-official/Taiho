@@ -43,7 +43,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!p_file) {
             throw std::runtime_error("无法创建文件: " + p_filename);
         }
-        p_file << mesh.p;
+        p_file << mesh.p_star;
         p_file.close();
 
         std::cout << "进程 " << rank << " 的数据已保存到文件" << std::endl;
@@ -216,7 +216,7 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
                 int max_iter, int rank, int num_procs, double& r0) {
     int n = equ.A.rows();
     SparseMatrix<double> A = equ.A;
-
+     
     // 计算初始残差
     VectorXd r = b - A * x;
     MatrixXd r_field(mesh.ny+2, mesh.nx+2), x_field(mesh.ny+2, mesh.nx+2);
@@ -245,7 +245,7 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
     
     double global_r_norm;
     MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
+     r0 = sqrt(global_r_norm);  // 更新初始r0
     int iter = 0;
     while (iter < max_iter) {
         // 计算 Ap
@@ -271,7 +271,8 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
         double new_r_norm = r.squaredNorm();
         double global_new_r_norm;
         MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
+        // 更新r0为当前全局残差
+        r0 = sqrt(global_new_r_norm);
         // 使用绝对残差判断收敛性
         if (global_new_r_norm < tol) {
             if(rank == 0) {
@@ -289,15 +290,16 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
         // 保存当前残差
         r0 = sqrt(global_new_r_norm);
 
-        if(rank == 0 && iter % 5 == 0) {
+        /*if(rank == 0 && iter % 5 == 0) {
             std::cout << "Iteration " << iter 
                      << " Absolute residual: " << sqrt(global_new_r_norm) 
                      << std::endl;
-        }
+        }*/
 
         iter++;
     }
-
+    // 确保最终r0同步
+    MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
 }
 
@@ -355,7 +357,7 @@ int main(int argc, char* argv[])
     
     // 初始化MPI环境
     MPI_Init(&argc, &argv);
-    
+     MPI_Barrier(MPI_COMM_WORLD);
     // 获取进程信息
     int rank, num_procs;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -393,7 +395,7 @@ int main(int argc, char* argv[])
        //记录上一个时间步长的u v
        mesh.u0 = mesh.u;
        mesh.v0 = mesh.v;
-       int max_outer_iterations=50;
+       int max_outer_iterations=200;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -415,10 +417,11 @@ int main(int argc, char* argv[])
        
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-7,50,rank,num_procs,l2_norm_x);
-        MPI_Barrier(MPI_COMM_WORLD);
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-7,50,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,50,rank,num_procs,l2_norm_x);
+        
+        
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,50,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -435,7 +438,7 @@ int main(int argc, char* argv[])
         exchangeColumns(mesh.u, rank, num_procs);
         exchangeColumns(mesh.v, rank, num_procs);
         exchangeColumns(equ_u.A_p, rank, num_procs);
-        
+         MPI_Barrier(MPI_COMM_WORLD);
        
         //4速度插值到面
         face_velocity(mesh ,equ_u);
@@ -450,10 +453,11 @@ int main(int argc, char* argv[])
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-5,800,rank,num_procs,l2_norm_p);
-        cout<<"完成计算"<<endl;
-        vectorToMatrix(p_v,mesh.p_prime,mesh);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-7,100,rank,num_procs,l2_norm_p);
         
+        vectorToMatrix(p_v,mesh.p_prime,mesh);
+         MPI_Barrier(MPI_COMM_WORLD);
+       
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         MPI_Barrier(MPI_COMM_WORLD);
         //8压力修正
@@ -477,31 +481,45 @@ int main(int argc, char* argv[])
        
         MPI_Barrier(MPI_COMM_WORLD);
        
-        double global_l2_norm_x, global_l2_norm_y, global_l2_norm_p;
-MPI_Reduce(&l2_norm_x, &global_l2_norm_x, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-MPI_Reduce(&l2_norm_y, &global_l2_norm_y, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-MPI_Reduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+       
+     // 计算全局残差
+double global_l2_norm_x, global_l2_norm_y, global_l2_norm_p;
+// 使用 MPI_Allreduce 而不是 MPI_Reduce 以便所有进程都能获得结果
+MPI_Allreduce(&l2_norm_x, &global_l2_norm_x, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+MPI_Allreduce(&l2_norm_y, &global_l2_norm_y, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+MPI_Allreduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-        
-        //收敛性判断
+// 计算归一化残差
+double norm_x = sqrt(global_l2_norm_x)/mesh.internumber;
+double norm_y = sqrt(global_l2_norm_y)/mesh.internumber;
+double norm_p = sqrt(global_l2_norm_p)/mesh.internumber;
+
+// 只在主进程(rank=0)打印残差信息
+if(rank == 0) {
     std::cout << scientific 
-            << "进程 " << rank 
-              << "时间步" << i 
-        << " 子循环轮数 " << n 
-           
-            << " u速度残差 " << setprecision(6) << (global_l2_norm_x/mesh.internumber)
-            << " v速度残差 " << setprecision(6) << (global_l2_norm_y/mesh.internumber)
-            << " 压力残差 " <<  setprecision(6) << (global_l2_norm_p/mesh.internumber)
-            << "\n" <<  endl;
-            
-       /*if((global_l2_norm_x/mesh.internumber) < 1.5*1e-5 && (global_l2_norm_y/mesh.internumber) < 1e-5 &&(global_l2_norm_p/mesh.internumber) < 1e-7) { 
-            std::cout << "线程 " << rank << " 达到收敛条件" << std::endl;
-            
-            break;
-        
-         
-        }*/
-   
+              << "时间步: " << i 
+              << " 迭代轮数: " << n 
+              << " u速度残差: " << setprecision(6) << norm_x
+              << " v速度残差: " << setprecision(6) << norm_y
+              << " 压力残差: " << setprecision(6) << norm_p
+              << std::endl;
+}
+
+// 检查收敛性
+int local_converged = (norm_x < 1e-8) && 
+                      (norm_y < 1e-8) && 
+                      (norm_p < 1e-10);
+
+// 同步所有进程的收敛状态
+int global_converged;
+MPI_Allreduce(&local_converged, &global_converged, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+
+if(global_converged) {
+    if(rank == 0) {
+        std::cout << "所有进程达到收敛条件" << std::endl;
+    }
+    break;
+}
     MPI_Barrier(MPI_COMM_WORLD);
     }
     //显式时间推进
@@ -522,4 +540,3 @@ MPI_Reduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WO
 }
    
     
-

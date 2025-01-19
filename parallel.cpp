@@ -41,8 +41,8 @@ void recvMatrixColumn(MatrixXd& dst_matrix, int dst_col,
         dst_matrix(i, dst_col) = recv_buffer[i];
     }
 }
-/* 发送矩阵列数据(非阻塞)
-void sendMatrixColumn(const MatrixXd& src_matrix, int src_col, 
+// 发送矩阵列数据(非阻塞)
+/*void sendMatrixColumn(const MatrixXd& src_matrix, int src_col, 
                      MatrixXd& dst_matrix, int dst_col, 
                      int target_rank, int tag) {
     int rows = src_matrix.rows();
@@ -88,7 +88,7 @@ void recvMatrixColumn(MatrixXd& dst_matrix, int dst_col,
     }
 }*/
 
-void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
+/*void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     // 特殊处理0号线程
     if(rank == 0) {
         // 只发送给右侧线程
@@ -131,5 +131,107 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     }
     
     // 同步所有进程
+    MPI_Barrier(MPI_COMM_WORLD);
+}*/
+void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
+    std::vector<MPI_Request> requests;
+    std::vector<std::vector<double>> send_buffers;
+    std::vector<std::vector<double>> recv_buffers;
+    const int rows = matrix.rows();
+
+    // 预分配缓冲区
+    if(rank == 0) {
+        // 0号进程需要2个发送和2个接收缓冲区
+        send_buffers.resize(2, std::vector<double>(rows));
+        recv_buffers.resize(2, std::vector<double>(rows));
+        requests.resize(4);
+
+        // 准备发送数据
+        for(int i = 0; i < rows; i++) {
+            send_buffers[0][i] = matrix(i, matrix.cols()-4);
+            send_buffers[1][i] = matrix(i, matrix.cols()-3);
+        }
+
+        // 非阻塞发送
+        MPI_Isend(send_buffers[0].data(), rows, MPI_DOUBLE, rank+1, 0, MPI_COMM_WORLD, &requests[0]);
+        MPI_Isend(send_buffers[1].data(), rows, MPI_DOUBLE, rank+1, 1, MPI_COMM_WORLD, &requests[1]);
+
+        // 非阻塞接收
+        MPI_Irecv(recv_buffers[0].data(), rows, MPI_DOUBLE, rank+1, 2, MPI_COMM_WORLD, &requests[2]);
+        MPI_Irecv(recv_buffers[1].data(), rows, MPI_DOUBLE, rank+1, 3, MPI_COMM_WORLD, &requests[3]);
+    }
+    else if(rank == num_procs-1) {
+        // 最后一个进程需要2个发送和2个接收缓冲区
+        send_buffers.resize(2, std::vector<double>(rows));
+        recv_buffers.resize(2, std::vector<double>(rows));
+        requests.resize(4);
+
+        // 准备发送数据
+        for(int i = 0; i < rows; i++) {
+            send_buffers[0][i] = matrix(i, 2);
+            send_buffers[1][i] = matrix(i, 3);
+        }
+
+        // 非阻塞发送
+        MPI_Isend(send_buffers[0].data(), rows, MPI_DOUBLE, rank-1, 2, MPI_COMM_WORLD, &requests[0]);
+        MPI_Isend(send_buffers[1].data(), rows, MPI_DOUBLE, rank-1, 3, MPI_COMM_WORLD, &requests[1]);
+
+        // 非阻塞接收
+        MPI_Irecv(recv_buffers[0].data(), rows, MPI_DOUBLE, rank-1, 0, MPI_COMM_WORLD, &requests[2]);
+        MPI_Irecv(recv_buffers[1].data(), rows, MPI_DOUBLE, rank-1, 1, MPI_COMM_WORLD, &requests[3]);
+    }
+    else {
+        // 中间进程需要4个发送和4个接收缓冲区
+        send_buffers.resize(4, std::vector<double>(rows));
+        recv_buffers.resize(4, std::vector<double>(rows));
+        requests.resize(8);
+
+        // 准备发送数据
+        for(int i = 0; i < rows; i++) {
+            send_buffers[0][i] = matrix(i, 2);
+            send_buffers[1][i] = matrix(i, 3);
+            send_buffers[2][i] = matrix(i, matrix.cols()-4);
+            send_buffers[3][i] = matrix(i, matrix.cols()-3);
+        }
+
+        // 非阻塞发送到左右两侧
+        MPI_Isend(send_buffers[0].data(), rows, MPI_DOUBLE, rank-1, 2, MPI_COMM_WORLD, &requests[0]);
+        MPI_Isend(send_buffers[1].data(), rows, MPI_DOUBLE, rank-1, 3, MPI_COMM_WORLD, &requests[1]);
+        MPI_Isend(send_buffers[2].data(), rows, MPI_DOUBLE, rank+1, 0, MPI_COMM_WORLD, &requests[2]);
+        MPI_Isend(send_buffers[3].data(), rows, MPI_DOUBLE, rank+1, 1, MPI_COMM_WORLD, &requests[3]);
+
+        // 非阻塞接收来自左右两侧的数据
+        MPI_Irecv(recv_buffers[0].data(), rows, MPI_DOUBLE, rank-1, 0, MPI_COMM_WORLD, &requests[4]);
+        MPI_Irecv(recv_buffers[1].data(), rows, MPI_DOUBLE, rank-1, 1, MPI_COMM_WORLD, &requests[5]);
+        MPI_Irecv(recv_buffers[2].data(), rows, MPI_DOUBLE, rank+1, 2, MPI_COMM_WORLD, &requests[6]);
+        MPI_Irecv(recv_buffers[3].data(), rows, MPI_DOUBLE, rank+1, 3, MPI_COMM_WORLD, &requests[7]);
+    }
+
+    // 等待所有通信完成
+    std::vector<MPI_Status> statuses(requests.size());
+    MPI_Waitall(requests.size(), requests.data(), statuses.data());
+
+    // 更新矩阵数据
+    if(rank == 0) {
+        for(int i = 0; i < rows; i++) {
+            matrix(i, matrix.cols()-2) = recv_buffers[0][i];
+            matrix(i, matrix.cols()-1) = recv_buffers[1][i];
+        }
+    }
+    else if(rank == num_procs-1) {
+        for(int i = 0; i < rows; i++) {
+            matrix(i, 0) = recv_buffers[0][i];
+            matrix(i, 1) = recv_buffers[1][i];
+        }
+    }
+    else {
+        for(int i = 0; i < rows; i++) {
+            matrix(i, 0) = recv_buffers[0][i];
+            matrix(i, 1) = recv_buffers[1][i];
+            matrix(i, matrix.cols()-2) = recv_buffers[2][i];
+            matrix(i, matrix.cols()-1) = recv_buffers[3][i];
+        }
+    }
+
     MPI_Barrier(MPI_COMM_WORLD);
 }
