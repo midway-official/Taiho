@@ -235,3 +235,178 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
 
     MPI_Barrier(MPI_COMM_WORLD);
 }
+
+// 从解向量转换为场矩阵
+void vectorToMatrix(const VectorXd& x, MatrixXd& phi, const Mesh& mesh) {
+    for (int i = 0; i <= mesh.ny + 1; i++) {
+        for (int j = 0; j <= mesh.nx + 1; j++) {
+            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
+                int n = mesh.interid(i, j) - 1; // 获取对应的解向量索引
+                phi(i, j) = x[n];
+            }
+        }
+    }
+}
+
+
+
+// 从场矩阵转换为解向量
+void matrixToVector(const MatrixXd& phi, VectorXd& x, const Mesh& mesh) {
+    for (int i = 0; i <= mesh.ny + 1; i++) {
+        for (int j = 0; j <= mesh.nx + 1; j++) {
+            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
+                int n = mesh.interid(i, j) - 1; // 获取对应的解向量索引
+                x[n] = phi(i, j);
+            }
+        }
+    }
+}
+
+
+
+void Parallel_correction(Mesh mesh,Equation equ,MatrixXd &phi1,MatrixXd &phi2){
+for (int i = 0; i <= mesh.ny + 1; i++) {
+        for (int j = 0; j <= mesh.nx + 1; j++) {
+            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
+                if (mesh.bctype(i, j+1) == -3)
+                {
+                     phi1(i, j)-=equ.A_e(i, j)*phi2(i, j+1);
+                }
+                 if (mesh.bctype(i, j-1) == -3)
+                {
+                     phi1(i, j)-=equ.A_w(i, j)*phi2(i, j-1);
+                }
+                
+               
+            }
+        }
+    }
+}
+void Parallel_correction2(Mesh mesh,Equation equ,MatrixXd &phi1,MatrixXd &phi2){
+for (int i = 0; i <= mesh.ny + 1; i++) {
+        for (int j = 0; j <= mesh.nx + 1; j++) {
+            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
+                if (mesh.bctype(i, j+1) == -3)
+                {
+                     phi1(i, j)+=equ.A_e(i, j)*phi2(i, j+1);
+                }
+                 if (mesh.bctype(i, j-1) == -3)
+                {
+                     phi1(i, j)+=equ.A_w(i, j)*phi2(i, j-1);
+                }
+                
+               
+            }
+        }
+    }
+}
+
+// 并行共轭梯度（CG）算法实现
+// 输入：
+// A - 系数矩阵（稀疏格式）
+// b - 右端项向量
+// x - 初始解向量，结果将存储在此
+// epsilon - 收敛精度
+// max_iter - 最大迭代次数
+// rank - 当前进程的标识符（MPI）
+// num_procs - 总进程数量（MPI）
+
+void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon, 
+                int max_iter, int rank, int num_procs, double& r0) {
+    int n = equ.A.rows();
+    SparseMatrix<double> A = equ.A;
+     
+    // 计算初始残差
+    VectorXd r = b - A * x;//矩阵向量乘 n1
+    MatrixXd r_field(mesh.ny+2, mesh.nx+2), x_field(mesh.ny+2, mesh.nx+2);
+    //交换矩阵重叠区域并计算
+    vectorToMatrix(r, r_field, mesh);
+    vectorToMatrix(x, x_field, mesh);
+    exchangeColumns(x_field, rank, num_procs);
+    //修正重叠单元
+    Parallel_correction2(mesh, equ, r_field, x_field);
+    //写回向量
+    matrixToVector(r_field, r, mesh);
+
+    VectorXd p = r;         
+    VectorXd Ap(n);
+    
+    // 计算初始残差和基准残差
+    double r_norm = r.squaredNorm();
+    double b_norm = b.squaredNorm();
+    
+    double local_b_norm = b_norm;
+    double global_b_norm;
+    // 使用 MPI_Allreduce 来将各个进程的 b_norm 求最大值（或总和等），确保每个进程能够看到全局的 b_norm
+MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+// 检查全局的 b_norm
+if (global_b_norm < 1e-13) {
+    x.setZero();
+    r0 = 0.0;
+    MPI_Barrier(MPI_COMM_WORLD);
+    return;  // 一旦判断为小于阈值，直接在所有进程处执行return
+}
+    // 使用绝对残差判据
+    double tol = epsilon * epsilon; // 直接使用给定的epsilon作为绝对收敛判据
+    
+    double global_r_norm;
+    //全局规约残差
+    MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+     r0 = sqrt(global_r_norm);  // 更新初始r0
+    int iter = 0;
+    while (iter < max_iter) {
+        // 计算 Ap
+        Ap = A * p;
+        MatrixXd p_field(mesh.ny+2, mesh.nx+2), Ap_field(mesh.ny+2, mesh.nx+2);
+        vectorToMatrix(p, p_field, mesh);
+        vectorToMatrix(Ap, Ap_field, mesh);
+        exchangeColumns(p_field, rank, num_procs);
+        Parallel_correction(mesh, equ, Ap_field, p_field);
+        matrixToVector(Ap_field, Ap, mesh);
+
+        // 计算步长
+        double local_dot_p_Ap = p.dot(Ap);
+        double global_dot_p_Ap;
+        MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        double alpha = global_r_norm / global_dot_p_Ap;
+         
+        // 更新解和残差
+        x += alpha * p;
+        r -= alpha * Ap;
+
+        // 计算新残差范数
+        double new_r_norm = r.squaredNorm();
+        double global_new_r_norm;
+        MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        // 更新r0为当前全局残差
+        r0 = sqrt(global_new_r_norm);
+        // 使用绝对残差判断收敛性
+        if (global_new_r_norm < tol) {
+            /*if(rank == 0) {
+                std::cout << "CG converged with absolute residual: " << sqrt(global_new_r_norm) 
+                         << " < " << sqrt(tol) << std::endl;
+            }*/
+            break;
+        }
+
+        // 更新搜索方向
+        double beta = global_new_r_norm / global_r_norm;
+        p = r + beta * p;
+        global_r_norm = global_new_r_norm;
+
+        // 保存当前残差
+        r0 = sqrt(global_new_r_norm);
+
+        /*if(rank == 0 && iter % 5 == 0) {
+            std::cout << "Iteration " << iter 
+                     << " Absolute residual: " << sqrt(global_new_r_norm) 
+                     << std::endl;
+        }*/
+
+        iter++;
+    }
+    // 确保最终r0同步
+    MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+}

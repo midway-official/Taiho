@@ -54,259 +54,9 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 }
 
 
-// 从解向量转换为场矩阵
-void vectorToMatrix(const VectorXd& x, MatrixXd& phi, const Mesh& mesh) {
-    for (int i = 0; i <= mesh.ny + 1; i++) {
-        for (int j = 0; j <= mesh.nx + 1; j++) {
-            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
-                int n = mesh.interid(i, j) - 1; // 获取对应的解向量索引
-                phi(i, j) = x[n];
-            }
-        }
-    }
-}
-
-// 从场矩阵转换为解向量
-void matrixToVector(const MatrixXd& phi, VectorXd& x, const Mesh& mesh) {
-    for (int i = 0; i <= mesh.ny + 1; i++) {
-        for (int j = 0; j <= mesh.nx + 1; j++) {
-            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
-                int n = mesh.interid(i, j) - 1; // 获取对应的解向量索引
-                x[n] = phi(i, j);
-            }
-        }
-    }
-}
-void Parallel_correction(Mesh mesh,Equation equ,MatrixXd &phi1,MatrixXd &phi2){
-for (int i = 0; i <= mesh.ny + 1; i++) {
-        for (int j = 0; j <= mesh.nx + 1; j++) {
-            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
-                if (mesh.bctype(i, j+1) == -3)
-                {
-                     phi1(i, j)-=equ.A_e(i, j)*phi2(i, j+1);
-                }
-                 if (mesh.bctype(i, j-1) == -3)
-                {
-                     phi1(i, j)-=equ.A_w(i, j)*phi2(i, j-1);
-                }
-                
-               
-            }
-        }
-    }
-}
-void Parallel_correction2(Mesh mesh,Equation equ,MatrixXd &phi1,MatrixXd &phi2){
-for (int i = 0; i <= mesh.ny + 1; i++) {
-        for (int j = 0; j <= mesh.nx + 1; j++) {
-            if (mesh.bctype(i, j) == 0) { // 仅处理内部点
-                if (mesh.bctype(i, j+1) == -3)
-                {
-                     phi1(i, j)+=equ.A_e(i, j)*phi2(i, j+1);
-                }
-                 if (mesh.bctype(i, j-1) == -3)
-                {
-                     phi1(i, j)+=equ.A_w(i, j)*phi2(i, j-1);
-                }
-                
-               
-            }
-        }
-    }
-}
-// 并行共轭梯度（CG）算法实现
-// 输入：
-// A - 系数矩阵（稀疏格式）
-// b - 右端项向量
-// x - 初始解向量，结果将存储在此
-// epsilon - 收敛精度
-// max_iter - 最大迭代次数
-// rank - 当前进程的标识符（MPI）
-// num_procs - 总进程数量（MPI）
-
-/*void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon, int max_iter, int rank, int num_procs,double& r0) {
-    int n = equ.A.rows();
-     MPI_Barrier(MPI_COMM_WORLD);
-    SparseMatrix<double> A=equ.A;
-    // 计算初始残差 r = b - A * x
-    MatrixXd r_field(mesh.ny+2,mesh.nx+2) ,x_field(mesh.ny+2,mesh.nx+2);
-    VectorXd r = b - A * x;
-    vectorToMatrix(r,r_field,mesh);
-    vectorToMatrix(x,x_field,mesh);
-    MPI_Barrier(MPI_COMM_WORLD);
-    exchangeColumns(x_field,rank,num_procs);
-    MPI_Barrier(MPI_COMM_WORLD);
-    Parallel_correction2(mesh,equ,r_field,x_field);
-    MPI_Barrier(MPI_COMM_WORLD);
-    matrixToVector(r_field,r,mesh);
-    // 初始化搜索方向 p = r
-    VectorXd p = r;         
-    // 存储矩阵与方向向量乘积 Ap
-    VectorXd Ap(n);         
-
-    // 计算初始残差范数 r_norm = ||r||^2
-    double r_norm = r.squaredNorm();
-    // 计算右端项范数 b_norm = ||b||^2，用于归一化停止条件
-    double b_norm = b.squaredNorm();
-    // 停止条件阈值 tol = epsilon^2 * ||b||^2
-    double tol = epsilon * epsilon * b_norm;
 
 
-    // 全局归约初始残差范数
-    double global_r_norm;
-    MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-   
-    int iter = 0; // 当前迭代次数
-    
-    while (iter < max_iter ) {
-        // 第一步：计算矩阵-向量乘积 Ap = A * p
-        // --- TODO: 在此处实现并行矩阵-向量乘积 ---
-        MPI_Barrier(MPI_COMM_WORLD);
-        Ap=A*p;
-        MatrixXd p_field(mesh.ny+2,mesh.nx+2) ,Ap_field(mesh.ny+2,mesh.nx+2);
-        vectorToMatrix(p,p_field,mesh);
-        vectorToMatrix(Ap,Ap_field,mesh);
-        MPI_Barrier(MPI_COMM_WORLD);
-        exchangeColumns(p_field,rank,num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
-        Parallel_correction(mesh,equ,Ap_field,p_field);
-        MPI_Barrier(MPI_COMM_WORLD);
-        matrixToVector(Ap_field,Ap,mesh);
-        MPI_Barrier(MPI_COMM_WORLD);
 
-        // 第二步：计算 alpha = (r, r) / (p, Ap)，其中 (p, Ap) 是向量点积
-        double local_dot_p_Ap = p.dot(Ap); // 计算本地点积
-        double global_dot_p_Ap;
-        MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD); // 全局归约计算 (p, Ap)
-        double alpha = global_r_norm / global_dot_p_Ap;
-
-        // 第三步：更新解向量 x 和残差向量 r
-        x += alpha * p; // 更新解向量
-        r -= alpha * Ap; // 更新残差向量
-
-        // 第四步：计算新的残差范数 ||r||^2
-        double new_r_norm = r.squaredNorm(); // 局部范数
-        double global_new_r_norm;
-        MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD); // 全局归约计算范数
-
-        
-
-        // 第五步：计算 beta = (r_new, r_new) / (r_old, r_old)，并更新搜索方向向量 p
-        double beta = global_new_r_norm / global_r_norm; // 比例因子
-        p = r + beta * p; // 更新搜索方向
-
-        // 更新旧的残差范数
-        global_r_norm = global_new_r_norm;
-        iter++;
-
-        // 打印当前迭代信息（仅主进程）
-        if (rank == 0) {
-            cout << "Iteration " << iter << " Residual norm: " << sqrt(global_new_r_norm) << endl;
-        }
-        r0= global_r_norm;
-    }
-      
-    // 如果达到最大迭代次数但未收敛，发出警告
-    if (rank == 0 && iter == max_iter) {
-        cerr << "Warning: CG did not converge within the maximum number of iterations." << endl;
-    }
-}*/
-void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon, 
-                int max_iter, int rank, int num_procs, double& r0) {
-    int n = equ.A.rows();
-    SparseMatrix<double> A = equ.A;
-     
-    // 计算初始残差
-    VectorXd r = b - A * x;
-    MatrixXd r_field(mesh.ny+2, mesh.nx+2), x_field(mesh.ny+2, mesh.nx+2);
-    vectorToMatrix(r, r_field, mesh);
-    vectorToMatrix(x, x_field, mesh);
-    exchangeColumns(x_field, rank, num_procs);
-    Parallel_correction2(mesh, equ, r_field, x_field);
-    matrixToVector(r_field, r, mesh);
-
-    VectorXd p = r;         
-    VectorXd Ap(n);
-    
-    // 计算初始残差和基准残差
-    double r_norm = r.squaredNorm();
-    double b_norm = b.squaredNorm();
-    
-    double local_b_norm = b_norm;
-    double global_b_norm;
-    // 使用 MPI_Allreduce 来将各个进程的 b_norm 求最大值（或总和等），确保每个进程能够看到全局的 b_norm
-MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-
-// 检查全局的 b_norm
-if (global_b_norm < 1e-13) {
-    x.setZero();
-    r0 = 0.0;
-    MPI_Barrier(MPI_COMM_WORLD);
-    return;  // 一旦判断为小于阈值，直接在所有进程处执行return
-}
-    // 使用绝对残差判据
-    double tol = epsilon * epsilon; // 直接使用给定的epsilon作为绝对收敛判据
-    
-    double global_r_norm;
-    MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-     r0 = sqrt(global_r_norm);  // 更新初始r0
-    int iter = 0;
-    while (iter < max_iter) {
-        // 计算 Ap
-        Ap = A * p;
-        MatrixXd p_field(mesh.ny+2, mesh.nx+2), Ap_field(mesh.ny+2, mesh.nx+2);
-        vectorToMatrix(p, p_field, mesh);
-        vectorToMatrix(Ap, Ap_field, mesh);
-        exchangeColumns(p_field, rank, num_procs);
-        Parallel_correction(mesh, equ, Ap_field, p_field);
-        matrixToVector(Ap_field, Ap, mesh);
-
-        // 计算步长
-        double local_dot_p_Ap = p.dot(Ap);
-        double global_dot_p_Ap;
-        MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        double alpha = global_r_norm / global_dot_p_Ap;
-         
-        // 更新解和残差
-        x += alpha * p;
-        r -= alpha * Ap;
-
-        // 计算新残差范数
-        double new_r_norm = r.squaredNorm();
-        double global_new_r_norm;
-        MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        // 更新r0为当前全局残差
-        r0 = sqrt(global_new_r_norm);
-        // 使用绝对残差判断收敛性
-        if (global_new_r_norm < tol) {
-            if(rank == 0) {
-                std::cout << "CG converged with absolute residual: " << sqrt(global_new_r_norm) 
-                         << " < " << sqrt(tol) << std::endl;
-            }
-            break;
-        }
-
-        // 更新搜索方向
-        double beta = global_new_r_norm / global_r_norm;
-        p = r + beta * p;
-        global_r_norm = global_new_r_norm;
-
-        // 保存当前残差
-        r0 = sqrt(global_new_r_norm);
-
-        /*if(rank == 0 && iter % 5 == 0) {
-            std::cout << "Iteration " << iter 
-                     << " Absolute residual: " << sqrt(global_new_r_norm) 
-                     << std::endl;
-        }*/
-
-        iter++;
-    }
-    // 确保最终r0同步
-    MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Barrier(MPI_COMM_WORLD);
-}
 
 
 int main(int argc, char* argv[]) 
@@ -400,7 +150,7 @@ int main(int argc, char* argv[])
        //记录上一个时间步长的u v
        mesh.u0 = mesh.u;
        mesh.v0 = mesh.v;
-       int max_outer_iterations=200;
+       int max_outer_iterations=50;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -411,7 +161,7 @@ int main(int argc, char* argv[])
         double l2_norm_x, l2_norm_y;
         
        
-        movement_function(mesh,equ_u,equ_v,10000);
+        movement_function(mesh,equ_u,equ_v,1000000);
         equ_u.build_matrix();
         equ_v.build_matrix();
 
@@ -423,10 +173,10 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,50,rank,num_procs,l2_norm_x);
+        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-16,40,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,50,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-16,40,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -458,7 +208,7 @@ int main(int argc, char* argv[])
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-7,100,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-17,50,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
@@ -530,9 +280,13 @@ if(global_converged) {
     //显式时间推进
     mesh.u = mesh.u0 + dt*mesh.u_star;
     mesh.v = mesh.v0 + dt*mesh.v_star;
-    }
-    
+    if (i % 5 == 0) {
+       saveMeshData(mesh,rank);
    
+    
+    }
+    }
+     
     // 最后显示实际计算总耗时
     auto total_elapsed_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time0).count();
     std::cout << "\n计算完成 总耗时: " << total_elapsed_time << "秒" << std::endl;
