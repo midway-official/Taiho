@@ -391,9 +391,30 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
     // 遍历 u_face (ny + 2, nx + 1)
     for(int i = 0; i <= mesh.ny + 1; i++) {
         for(int j = 0; j <= mesh.nx; j++) {
+             
+             
+
+
+
             if( ((bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
  (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
  (bctype(i,j) == -3 && bctype(i,j+1) == 0))) {
+                 if (bctype(i,j+2)==-2)
+             {
+                p(i,j+2)=p(i,j+1);
+             }
+             if (bctype(i,j-1)==-2)
+             {
+                p(i,j-1)=p(i,j);
+             }
+             if (bctype(i,j+2)==-1)
+             {
+                p(i,j+2)=0;
+             }
+             if (bctype(i,j-1)==-1)
+             {
+                p(i,j-1)=0;
+             }
                 u_face(i,j) = 0.5*(u(i,j) + u(i,j+1))
                     + 0.25*alpha_uv*(p(i,j+1) - p(i,j-1))*dy*dx/A_p(i,j)*dx 
                     + 0.25*alpha_uv*(p(i,j+2) - p(i,j))*dy*dx/A_p(i,j+1)*dx
@@ -401,10 +422,8 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
             }
          
             if( (bctype(i,j) == 0 && bctype(i,j+1) == -1 ) ){
-                u_face(i,j)=u(i,j)
-                + 0.25*alpha_uv*(0 - p(i,j-1))*dy 
-                + 0.25*alpha_uv*(0 - p(i,j))*dy
-                - 0.5*alpha_uv*(1/A_p(i,j))*(0 - p(i,j))*dy;
+                u_face(i,j)=u(i,j);
+             
                 
               }
             if( (bctype(i,j) == -1 && bctype(i,j+1) == 0 ) ){
@@ -428,6 +447,22 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
     for(int i = 0; i <= mesh.ny; i++) {
         for(int j = 0; j <= mesh.nx + 1; j++) {
             if((bctype(i,j) == 0 )&&(   bctype(i+1,j) ==0)) {
+                if (bctype(i+2,j)==-2)
+                {
+                   p(i+2,j)=p(i+1,j);
+                }
+                if (bctype(i-1,j)==-2)
+                {
+                   p(i-1,j)=p(i,j);
+                }
+                if (bctype(i+2,j)==-1)
+                {
+                   p(i+2,j)=0;
+                }
+                if (bctype(i-1,j)==-1)
+                {
+                   p(i-1,j)=0;
+                }
                 v_face(i,j) = 0.5*(v(i+1,j) + v(i,j))
                     + 0.25*alpha_uv*(p(i,j) - p(i+2,j))*dy/A_p(i+1,j)
                     + 0.25*alpha_uv*(p(i-1,j) - p(i+1,j))*dy/A_p(i,j)
@@ -444,7 +479,14 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
                     
   
                   }
-
+             if( (bctype(i,j) == 0 && bctype(i+1,j) == -1 ) ){
+                v_face(i,j)=v(i,j);
+                
+              }
+            if( (bctype(i,j) == -1 && bctype(i+1,j) == 0 ) ){
+                v_face(i,j)=v(i+1,j);
+                
+              }
 
         }
     }
@@ -520,12 +562,13 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
                 else {
                     Ap_s(i,j) = 0;
                 }
-
+               
                 // 设置中心系数和源项
                 Ap_p(i,j) = Ap_temp;
-                
+                 
                 source_temp += -(u_face(i,j) - u_face(i,j-1))*dy 
                              - (v_face(i-1,j) - v_face(i,j))*dx;
+                
                 source_p[n]=   source_temp ;          
             }
         }
@@ -541,47 +584,23 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
     int n_x = mesh.nx;
     int n_y = mesh.ny;
 
-   /* // 遍历所有网格点
+   // 更新压力场
+   double alpha_p = 0.05;  // 压力松弛因子
+   p_star = p + alpha_p * p_prime;
     for(int i = 0; i <= n_y + 1; i++) {
         for(int j = 0; j <= n_x + 1; j++) {
-            if(bctype(i,j) > 0) {  // 边界点
-                vector<double> neighbor_values;
-                
-                // 检查上邻居
-                if(i > 0 && bctype(i-1,j) == 0) {
-                    neighbor_values.push_back(p_prime(i-1,j));
+              if(bctype(i,j) !=0) {  // 边界点
+                p_star(i,j) = 0;
                 }
-                
-                // 检查下邻居
-                if(i < n_y+1 && bctype(i+1,j) == 0) {
-                    neighbor_values.push_back(p_prime(i+1,j));
-                }
-                
-                // 检查左邻居
-                if(j > 0 && bctype(i,j-1) == 0) {
-                    neighbor_values.push_back(p_prime(i,j-1));
-                }
-                
-                // 检查右邻居
-                if(j < n_x+1 && bctype(i,j+1) == 0) {
-                    neighbor_values.push_back(p_prime(i,j+1));
-                }
-                
-                // 如果有内部单元格邻居，取平均值
-                if(!neighbor_values.empty()) {
-                    double avg = 0.0;
-                    for(double val : neighbor_values) {
-                        avg += val;
+                if(bctype(i,j) ==-1) {  // 边界点
+                    mesh.u(i,j) = 0;
+                    mesh.v(i,j) = 0;
                     }
-                    p_prime(i,j) = avg / neighbor_values.size();
-                }
             }
         }
-    }*/
+    
 
-    // 更新压力场
-    double alpha_p = 0.005;  // 压力松弛因子
-    p_star = p + alpha_p * p_prime;
+    
 }
 
 
@@ -627,7 +646,7 @@ else if(bctype(i,j+1) ==-2) {
     p_east = p_prime(i,j);    // 固定边界，使用当前点的压力
 } 
  else if(bctype(i,j+1) ==-1) {
-    p_east = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+    p_east =p_prime(i,j);             // 压力边界或滑移边界，压力设为0
 }
                 
                 u_star(i,j) = u(i,j) + 0.5*alpha_uv*(p_west - p_east)*dy/A_p(i,j);
@@ -646,8 +665,12 @@ if(bctype(i-1,j) == 0||bctype(i-1,j) == -3) {
     p_north = p_prime(i-1,j);  // 内部点，使用邻居的压力
 } else if(bctype(i-1,j) > 0) {
     p_north = p_prime(i,j);    // 固定边界，使用当前点的压力
-} else if(bctype(i-1,j) > -10) {
-    p_north = 0.0;             // 压力边界或滑移边界，压力设为0
+} else if(bctype(i-1,j) ==-2) {
+    p_north =p_prime(i,j) ;             // 压力边界或滑移边界，压力设为0
+ }else if(bctype(i-1,j) ==-1) {
+    p_north = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+ }else if(bctype(i-1,j) > -10) {
+    p_north = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
 }
 
 // 检查南面
@@ -655,8 +678,14 @@ if(bctype(i+1,j) == 0||bctype(i+1,j) == -3) {
     p_south = p_prime(i+1,j);  // 内部点，使用邻居的压力
 } else if(bctype(i+1,j) > 0) {
     p_south = p_prime(i,j);    // 固定边界，使用当前点的压力
-} else if(bctype(i+1,j) > -10) {
-    p_south = 0.0;             // 压力边界或滑移边界，压力设为0
+} else if(bctype(i+1,j) ==-2) {
+    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+else if(bctype(i+1,j) ==-1) {
+    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+else if(bctype(i+1,j) > -10) {
+    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
 }
                 
                 v_star(i,j) = v(i,j) + 0.5*alpha_uv*(p_south - p_north)*dx/A_p(i,j);
@@ -674,11 +703,11 @@ if(bctype(i+1,j) == 0||bctype(i+1,j) == -3) {
                     0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i,j+1))*(p_prime(i,j) - p_prime(i,j+1))*dy;
              if( (bctype(i,j) == 0 && bctype(i,j+1) == -1 ) ){
                   u_face(i,j)=u_star(i,j);
-                  u_star(i,j+1)=u_star(i,j);
+                  
                 }
               if( (bctype(i,j) == -1 && bctype(i,j+1) == 0 ) ){
                   u_face(i,j)=u_star(i,j+1);
-                  u_star(i,j)=u_star(i,j+1);
+                  
 
                 }
             }
@@ -694,11 +723,11 @@ if(bctype(i+1,j) == 0||bctype(i+1,j) == -3) {
             }
             if( (bctype(i,j) == 0 && bctype(i+1,j) == -1 ) ){
                   v_face(i,j)=v_star(i,j);
-                  v_star(i+1,j)=v_star(i,j);
+                  
                 }
               if( (bctype(i,j) == -1 && bctype(i+1,j) == 0 ) ){
                   v_face(i,j)=v_star(i+1,j);
-                  v_star(i,j)=v_star(i+1,j);
+                 
 
                 }
         }
@@ -840,10 +869,10 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                 source_x_temp = 0.5*alpha_uv*(p(i,j-1)-p(i,j+1))*dy;
                 
             } else if(bctype(i,j-1) == -1) {
-                // 左边是压力为0的边界
+                // 左边是压力为0的边界 压力出口
                 source_x_temp = 0.5*alpha_uv*(-1*p(i,j+1))*dy;
             } else if(bctype(i,j+1) == -1) {
-                // 右边是压力为0的边界
+                // 右边是压力为0的边界 压力出口
                 source_x_temp = 0.5*alpha_uv*(p(i,j-1))*dy;
             } else if(bctype(i,j-1) == -2) {
                 // 左边是速度入口
@@ -869,11 +898,11 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                 source_y_temp = 0.5*alpha_uv*(p(i+1,j)-p(i-1,j))*dx;
                 
             } else if(bctype(i-1,j) == -1) {
-                // 上边是压力为0的边界
+                // 上边是压力为0的边界 压力出口
                 source_y_temp = 0.5*alpha_uv*(p(i+1,j))*dx;
                 
             } else if(bctype(i+1,j) == -1) {
-                // 下边是压力为0的边界
+                // 下边是压力为0的边界  压力出口
                 source_y_temp = 0.5*alpha_uv*(-p(i-1,j))*dx;
             } else if(bctype(i-1,j) == -2) {
                 // 上边是压力为0的边界
@@ -913,11 +942,13 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
 
                 else if(bctype(i,j+1) ==-1 ) {  // 其他边界
                     A_e(i,j) = 0;
-                    Ap_temp += D_e + max(0.0,F_e)-(alpha_uv*(D_e + max(0.0,-F_e)));  
+                    Ap_temp += D_e + max(0.0,F_e);
+                    source_x_temp += alpha_uv*u_star(i,j)*(D_e + max(0.0,-F_e));  // 移除系数2
+                    source_y_temp += alpha_uv*v_star(i,j)*(D_e + max(0.0,-F_e));  // 移除系数2
                 }
                 else if(bctype(i,j+1) > -10 ) {  // 其他边界
                     A_e(i,j) = 0;
-                    Ap_temp += D_e + max(0.0,F_e);  // 移除系数2
+                    Ap_temp += D_e + max(0.0,F_e);  
                     source_x_temp += alpha_uv*zoneu[zoneid(i,j+1)]*(D_e + max(0.0,-F_e));  // 移除系数2
                     source_y_temp += alpha_uv*zonev[zoneid(i,j+1)]*(D_e + max(0.0,-F_e));  // 移除系数2
                 }
@@ -934,7 +965,9 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                 }
                 else if(bctype(i,j-1) ==-1) {  // 其他边界
                     A_w(i,j) = 0;
-                    Ap_temp += D_w + max(0.0,-F_w)-(alpha_uv*(D_w + max(0.0,F_w)));
+                    Ap_temp += D_w + max(0.0,-F_w);
+                    source_x_temp += alpha_uv*u_star(i,j)*(D_w + max(0.0,F_w));  // 移除系数2
+                    source_y_temp += alpha_uv*v_star(i,j)*(D_w + max(0.0,F_w));  // 移除系数2
                 }
                 else if(bctype(i,j-1) > 0) {  //wall边界
                     A_w(i,j) = 0;
@@ -955,9 +988,11 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                     A_n(i,j) = D_n + max(0.0,-F_n);
                     Ap_temp += D_n + max(0.0,F_n);
                 } 
-                if(bctype(i-1,j) == -1) {  
+                if(bctype(i-1,j) == -1) {  // 压力出口
                     A_n(i,j) = 0;
-                    Ap_temp += D_n + max(0.0,F_n)-(alpha_uv*(D_n + max(0.0,-F_n)));
+                    Ap_temp += D_n + max(0.0,F_n);
+                    source_x_temp += alpha_uv*u_star(i-1,j)*(D_n + max(0.0,-F_n));
+                    source_y_temp += alpha_uv*v_star(i-1,j)*(D_n + max(0.0,-F_n));
                 } 
                
                 else if(bctype(i-1,j) > 0) {  // wall边界
@@ -979,7 +1014,9 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
                 }
                 if(bctype(i+1,j) == -1) {  // 压力出口
                     A_s(i,j) =0;
-                    Ap_temp += D_s + max(0.0,-F_s)-(alpha_uv*(D_s + max(0.0,F_s)));
+                    Ap_temp += D_s + max(0.0,-F_s);  
+                    source_x_temp += alpha_uv*u(i+1,j)*(D_s + max(0.0,F_s));  
+                    source_y_temp += alpha_uv*v(i+1,j)*(D_s + max(0.0,F_s));  
                 }
                  else if(bctype(i+1,j) > 0) {  // wall边界
                     A_s(i,j) = 0;

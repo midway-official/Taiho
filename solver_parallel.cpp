@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
        //记录上一个时间步长的u v
        mesh.u0 = mesh.u;
        mesh.v0 = mesh.v;
-       int max_outer_iterations=50;
+       int max_outer_iterations=100;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
         double l2_norm_x, l2_norm_y;
         
        
-        movement_function(mesh,equ_u,equ_v,1000000);
+        movement_function(mesh,equ_u,equ_v,10000);
         equ_u.build_matrix();
         equ_v.build_matrix();
 
@@ -173,10 +173,10 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-16,40,rank,num_procs,l2_norm_x);
+        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-16,70,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-16,40,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-16,70,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -208,7 +208,7 @@ int main(int argc, char* argv[])
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-17,50,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-17,80,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
