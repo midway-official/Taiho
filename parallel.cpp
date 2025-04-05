@@ -380,15 +380,9 @@ if (global_b_norm < 1e-13) {
         double global_new_r_norm;
         MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         // 更新r0为当前全局残差
-        r0 = sqrt(global_new_r_norm);
+        r0 = sqrt(global_new_r_norm)/n*num_procs;
         // 使用绝对残差判断收敛性
-        if (global_new_r_norm < tol) {
-            /*if(rank == 0) {
-                std::cout << "CG converged with absolute residual: " << sqrt(global_new_r_norm) 
-                         << " < " << sqrt(tol) << std::endl;
-            }*/
-            break;
-        }
+       
 
         // 更新搜索方向
         double beta = global_new_r_norm / global_r_norm;

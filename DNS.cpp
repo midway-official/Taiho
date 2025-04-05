@@ -809,7 +809,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time) {
 
 void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
 {   
-    //-1 零压梯度
+    //-1 压力出口(给定压强)
     //-2 固定速度
     //-3 并行交界面
 

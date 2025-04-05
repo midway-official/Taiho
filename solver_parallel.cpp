@@ -133,9 +133,9 @@ int main(int argc, char* argv[])
     Mesh mesh = sub_meshes[rank];
     
     // ... 后续的计算过程 ...
-   int nx0,ny0;
-   nx0=mesh.nx;
-   ny0=mesh.ny;
+    int nx0,ny0;
+    nx0=mesh.nx;
+    ny0=mesh.ny;
     //建立u v p的方程
     Equation equ_u(mesh);
     Equation equ_v(mesh);
@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
        //记录上一个时间步长的u v
        mesh.u0 = mesh.u;
        mesh.v0 = mesh.v;
-       int max_outer_iterations=100;
+       int max_outer_iterations=30;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
         double l2_norm_x, l2_norm_y;
         
        
-        movement_function(mesh,equ_u,equ_v,10000);
+        movement_function(mesh,equ_u,equ_v,100000);
         equ_u.build_matrix();
         equ_v.build_matrix();
 
@@ -173,10 +173,10 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-16,70,rank,num_procs,l2_norm_x);
+        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-6,30,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-16,70,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-6,30,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -194,7 +194,7 @@ int main(int argc, char* argv[])
         exchangeColumns(mesh.v, rank, num_procs);
         exchangeColumns(equ_u.A_p, rank, num_procs);
          MPI_Barrier(MPI_COMM_WORLD);
-       
+        
         //4速度插值到面
         face_velocity(mesh ,equ_u);
         
@@ -208,10 +208,10 @@ int main(int argc, char* argv[])
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-17,80,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-5,50,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
-         MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);
        
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         MPI_Barrier(MPI_COMM_WORLD);
@@ -245,18 +245,18 @@ MPI_Allreduce(&l2_norm_y, &global_l2_norm_y, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WO
 MPI_Allreduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 // 计算归一化残差
-double norm_x = sqrt(global_l2_norm_x)/mesh.internumber;
-double norm_y = sqrt(global_l2_norm_y)/mesh.internumber;
-double norm_p = sqrt(global_l2_norm_p)/mesh.internumber;
+double norm_x = sqrt(global_l2_norm_x);
+double norm_y = sqrt(global_l2_norm_y);
+double norm_p = sqrt(global_l2_norm_p);
 
 // 只在主进程(rank=0)打印残差信息
 if(rank == 0) {
     std::cout << scientific 
               << "时间步: " << i 
               << " 迭代轮数: " << n 
-              << " u速度残差: " << setprecision(6) << norm_x
-              << " v速度残差: " << setprecision(6) << norm_y
-              << " 压力残差: " << setprecision(6) << norm_p
+              << " u速度残差: " << setprecision(6) << l2_norm_x
+              << " v速度残差: " << setprecision(6) << l2_norm_y
+              << " 压力残差: " << setprecision(6) << l2_norm_p
               << std::endl;
 }
 
