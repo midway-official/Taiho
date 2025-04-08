@@ -58,7 +58,6 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 
 
 
-
 int main(int argc, char* argv[]) 
 {
     // 获取输入参数
@@ -66,18 +65,22 @@ int main(int argc, char* argv[])
     double dt;
     int timesteps;
     int n_splits;  // 并行计算线程数
-
-    if(argc == 5) {
+    double mu;
+    
+    if(argc == 6) {
         // 命令行参数输入
         mesh_folder = argv[1];
         dt = std::stod(argv[2]);
         timesteps = std::stoi(argv[3]);
-        n_splits = std::stoi(argv[4]);
+        mu= std::stod(argv[4]);
+        n_splits = std::stoi(argv[5]);
         std::cout << "从命令行读取参数:" << std::endl;
         std::cout << "网格文件夹: " << mesh_folder << std::endl;
         std::cout << "时间步长: " << dt << std::endl;
         std::cout << "时间步数: " << timesteps << std::endl;
         std::cout << "并行线程数: " << n_splits << std::endl;
+        std::cout << "粘度: " << mu << std::endl;
+
     }
     else {
         // 手动输入
@@ -89,6 +92,8 @@ int main(int argc, char* argv[])
         std::cin >> timesteps;
         std::cout << "并行线程数:";
         std::cin >> n_splits;
+        std::cout << "粘度:";
+        std::cin >> mu;
     }
 
     // 检查参数合法性
@@ -133,9 +138,9 @@ int main(int argc, char* argv[])
     Mesh mesh = sub_meshes[rank];
     
     // ... 后续的计算过程 ...
-    int nx0,ny0;
-    nx0=mesh.nx;
-    ny0=mesh.ny;
+   int nx0,ny0;
+   nx0=mesh.nx;
+   ny0=mesh.ny;
     //建立u v p的方程
     Equation equ_u(mesh);
     Equation equ_v(mesh);
@@ -148,9 +153,8 @@ int main(int argc, char* argv[])
         // 切换到当前编号文件夹
       
        //记录上一个时间步长的u v
-       mesh.u0 = mesh.u;
-       mesh.v0 = mesh.v;
-       int max_outer_iterations=30;
+      
+       int max_outer_iterations=100;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -161,7 +165,7 @@ int main(int argc, char* argv[])
         double l2_norm_x, l2_norm_y;
         
        
-        movement_function(mesh,equ_u,equ_v,100000);
+        movement_function_unsteady(mesh,equ_u,equ_v,mu,dt);
         equ_u.build_matrix();
         equ_v.build_matrix();
 
@@ -173,10 +177,10 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-6,30,rank,num_procs,l2_norm_x);
+        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,50,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-6,30,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,50,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -194,7 +198,7 @@ int main(int argc, char* argv[])
         exchangeColumns(mesh.v, rank, num_procs);
         exchangeColumns(equ_u.A_p, rank, num_procs);
          MPI_Barrier(MPI_COMM_WORLD);
-        
+       
         //4速度插值到面
         face_velocity(mesh ,equ_u);
         
@@ -208,10 +212,10 @@ int main(int argc, char* argv[])
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-5,50,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-7,100,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
-        MPI_Barrier(MPI_COMM_WORLD);
+         MPI_Barrier(MPI_COMM_WORLD);
        
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         MPI_Barrier(MPI_COMM_WORLD);
@@ -245,18 +249,18 @@ MPI_Allreduce(&l2_norm_y, &global_l2_norm_y, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WO
 MPI_Allreduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 // 计算归一化残差
-double norm_x = sqrt(global_l2_norm_x);
-double norm_y = sqrt(global_l2_norm_y);
-double norm_p = sqrt(global_l2_norm_p);
+double norm_x = sqrt(global_l2_norm_x)/mesh.internumber;
+double norm_y = sqrt(global_l2_norm_y)/mesh.internumber;
+double norm_p = sqrt(global_l2_norm_p)/mesh.internumber;
 
 // 只在主进程(rank=0)打印残差信息
 if(rank == 0) {
     std::cout << scientific 
               << "时间步: " << i 
               << " 迭代轮数: " << n 
-              << " u速度残差: " << setprecision(6) << l2_norm_x
-              << " v速度残差: " << setprecision(6) << l2_norm_y
-              << " 压力残差: " << setprecision(6) << l2_norm_p
+              << " u速度残差: " << setprecision(6) << norm_x
+              << " v速度残差: " << setprecision(6) << norm_y
+              << " 压力残差: " << setprecision(6) << norm_p
               << std::endl;
 }
 
@@ -278,15 +282,12 @@ if(global_converged) {
     MPI_Barrier(MPI_COMM_WORLD);
     }
     //显式时间推进
-    mesh.u = mesh.u0 + dt*mesh.u_star;
-    mesh.v = mesh.v0 + dt*mesh.v_star;
-    if (i % 5 == 0) {
-       saveMeshData(mesh,rank);
-   
+    saveMeshData(mesh,rank);
+    mesh.u0 = mesh.u_star;
+    mesh.v0 = mesh.v_star;
+    }
     
-    }
-    }
-     
+   
     // 最后显示实际计算总耗时
     auto total_elapsed_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time0).count();
     std::cout << "\n计算完成 总耗时: " << total_elapsed_time << "秒" << std::endl;
@@ -297,5 +298,3 @@ if(global_converged) {
      
     return 0;
 }
-   
-    
