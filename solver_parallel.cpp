@@ -27,7 +27,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!u_file) {
             throw std::runtime_error("无法创建文件: " + u_filename);
         }
-        u_file << mesh.u_star;
+        u_file << mesh.u;
         u_file.close();
 
         // 保存v场
@@ -35,7 +35,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!v_file) {
             throw std::runtime_error("无法创建文件: " + v_filename);
         }
-        v_file << mesh.v_star;
+        v_file << mesh.v;
         v_file.close();
 
         // 保存p场
@@ -43,10 +43,10 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!p_file) {
             throw std::runtime_error("无法创建文件: " + p_filename);
         }
-        p_file << mesh.p_star;
+        p_file << mesh.p;
         p_file.close();
 
-        std::cout << "进程 " << rank << " 的数据已保存到文件" << std::endl;
+        //std::cout << "进程 " << rank << " 的数据已保存到文件" << std::endl;
     }
     catch(const std::exception& e) {
         std::cerr << "保存数据时出错: " << e.what() << std::endl;
@@ -96,11 +96,7 @@ int main(int argc, char* argv[])
         std::cin >> mu;
     }
 
-    // 检查参数合法性
-    if(dt <= 0 || timesteps <= 0 || n_splits <= 0) {
-        std::cerr << "错误: 时间步长、步数和并行线程数必须为正数" << std::endl;
-        return 1;
-    }
+    
 
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
@@ -136,7 +132,8 @@ int main(int argc, char* argv[])
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
-    
+    mesh.u0.setZero();
+    mesh.v0.setZero();
     // ... 后续的计算过程 ...
    int nx0,ny0;
    nx0=mesh.nx;
@@ -145,27 +142,32 @@ int main(int argc, char* argv[])
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
+   
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
+    
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
     for (int i = 0; i <= timesteps; ++i) { 
         
-        cout<<"时间步长 "<< i <<std::endl;
+       if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
         // 切换到当前编号文件夹
       
        //记录上一个时间步长的u v
       
-       int max_outer_iterations=100;
+       int max_outer_iterations=10;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
-        
+        double init_l2_norm_x = -1.0;
+       double init_l2_norm_y = -1.0;
+       double init_l2_norm_p = -1.0;
     for(int n=1;n<=max_outer_iterations;n++) {
          MPI_Barrier(MPI_COMM_WORLD);
         //1离散动量方程 
         double l2_norm_x, l2_norm_y;
         
-       
+        equ_v.source.setZero();
         movement_function_unsteady(mesh,equ_u,equ_v,mu,dt);
+        
         equ_u.build_matrix();
         equ_v.build_matrix();
 
@@ -176,44 +178,50 @@ int main(int argc, char* argv[])
        
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
+        MPI_Barrier(MPI_COMM_WORLD);
+        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-6,20,rank,num_procs,l2_norm_x);
         
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,50,rank,num_procs,l2_norm_x);
-        
-        
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,50,rank,num_procs,l2_norm_y);
+        MPI_Barrier(MPI_COMM_WORLD);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-6,20,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
+        
+
+
        
-        
-        
-        
 
       
         
-         MPI_Barrier(MPI_COMM_WORLD);
+          MPI_Barrier(MPI_COMM_WORLD);
 
        
         exchangeColumns(mesh.u, rank, num_procs);
         exchangeColumns(mesh.v, rank, num_procs);
+        exchangeColumns(mesh.p, rank, num_procs);
         exchangeColumns(equ_u.A_p, rank, num_procs);
          MPI_Barrier(MPI_COMM_WORLD);
        
         //4速度插值到面
         face_velocity(mesh ,equ_u);
-        
+       MPI_Barrier(MPI_COMM_WORLD);
+        exchangeColumns(mesh.u_face, rank, num_procs);
+        exchangeColumns(mesh.v_face, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
         
         double epsilon_p=1e-5;
-       
+        equ_p.initializeToZero();
         pressure_function(mesh, equ_p, equ_u);
-       
+        
         // 重新更新源项并重建矩阵
         equ_p.build_matrix();
         //求解
-        VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-7,100,rank,num_procs,l2_norm_p);
         
+       
+        VectorXd p_v(mesh.internumber);
+        MPI_Barrier(MPI_COMM_WORLD);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-8,60,rank,num_procs,l2_norm_p);
+        MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
        
@@ -229,45 +237,48 @@ int main(int argc, char* argv[])
         
         //10更新压力
         mesh.p=mesh.p_star;
-       
-        MPI_Barrier(MPI_COMM_WORLD);
-  
-
-       
-     
+        mesh.u=mesh.u_star;
+        mesh.v=mesh.v_star;  
         MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.p, rank, num_procs);
+        
+     
+        
        
         MPI_Barrier(MPI_COMM_WORLD);
        
-       
-     // 计算全局残差
-double global_l2_norm_x, global_l2_norm_y, global_l2_norm_p;
-// 使用 MPI_Allreduce 而不是 MPI_Reduce 以便所有进程都能获得结果
-MPI_Allreduce(&l2_norm_x, &global_l2_norm_x, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-MPI_Allreduce(&l2_norm_y, &global_l2_norm_y, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-MPI_Allreduce(&l2_norm_p, &global_l2_norm_p, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+       // 记录初始残差（仅第一次迭代）
+if (n == 1) {
+    init_l2_norm_x = l2_norm_x;
+    init_l2_norm_y = l2_norm_y;
+    init_l2_norm_p = l2_norm_p;
+}
 
-// 计算归一化残差
-double norm_x = sqrt(global_l2_norm_x)/mesh.internumber;
-double norm_y = sqrt(global_l2_norm_y)/mesh.internumber;
-double norm_p = sqrt(global_l2_norm_p)/mesh.internumber;
-
+// 避免除以 0（数值健壮性）
+double norm_res_x = (init_l2_norm_x > 1e-200) ? l2_norm_x / init_l2_norm_x : 0.0;
+double norm_res_y = (init_l2_norm_y > 1e-200) ? l2_norm_y / init_l2_norm_y : 0.0;
+double norm_res_p = (init_l2_norm_p > 1e-200) ? l2_norm_p / init_l2_norm_p : 0.0;
+   
 // 只在主进程(rank=0)打印残差信息
 if(rank == 0) {
     std::cout << scientific 
               << "时间步: " << i 
               << " 迭代轮数: " << n 
-              << " u速度残差: " << setprecision(6) << norm_x
-              << " v速度残差: " << setprecision(6) << norm_y
-              << " 压力残差: " << setprecision(6) << norm_p
+              <<"  归一化残差："
+              << " u: " << setprecision(4) << norm_res_x
+              << " v: " << setprecision(4) << norm_res_y
+              << " p " << setprecision(4) << norm_res_p
+              <<"  全局残差："
+              << " u: " << setprecision(4) << l2_norm_x
+              << " v: " << setprecision(4) << l2_norm_y
+              << " p " << setprecision(4) << l2_norm_p
               << std::endl;
 }
 
 // 检查收敛性
-int local_converged = (norm_x < 1e-8) && 
-                      (norm_y < 1e-8) && 
-                      (norm_p < 1e-10);
+int local_converged = (norm_res_x < 1e-1) && 
+                      (norm_res_y < 1e-1) && 
+                      (norm_res_p < 1e-3);
 
 // 同步所有进程的收敛状态
 int global_converged;
@@ -281,7 +292,7 @@ if(global_converged) {
 }
     MPI_Barrier(MPI_COMM_WORLD);
     }
-    //显式时间推进
+    //时间推进
     saveMeshData(mesh,rank);
     mesh.u0 = mesh.u_star;
     mesh.v0 = mesh.v_star;

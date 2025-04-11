@@ -78,7 +78,7 @@ void correct_pressure(Mesh &mesh,Equation &equ_u);
 
 void correct_velocity(Mesh &mesh,Equation &equ_u);
 
-void post_processing(Mesh &mseh,int n_x,int n_y,double a);
+void post_processing(Mesh &mseh);
 
 void show_progress_bar(int current_step, int total_steps, double elapsed_time);
 
@@ -87,6 +87,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time);
 
 void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re);
 void movement_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
+void movement_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
 //竖向分割网格
 vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n);
 //合并网格

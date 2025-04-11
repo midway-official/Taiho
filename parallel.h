@@ -33,4 +33,8 @@ void Parallel_correction2(Mesh mesh,Equation equ,MatrixXd &phi1,MatrixXd &phi2);
 
 void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon, 
                 int max_iter, int rank, int num_procs, double& r0);
+
+
+void BiCGSTAB_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon,
+                    int max_iter, int rank, int num_procs, double& r0);
 #endif // PARALLEL_H

@@ -318,16 +318,20 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
      
     // 计算初始残差
     VectorXd r = b - A * x;//矩阵向量乘 n1
+    MPI_Barrier(MPI_COMM_WORLD);
     MatrixXd r_field(mesh.ny+2, mesh.nx+2), x_field(mesh.ny+2, mesh.nx+2);
     //交换矩阵重叠区域并计算
     vectorToMatrix(r, r_field, mesh);
     vectorToMatrix(x, x_field, mesh);
+    MPI_Barrier(MPI_COMM_WORLD);
     exchangeColumns(x_field, rank, num_procs);
+    MPI_Barrier(MPI_COMM_WORLD);
     //修正重叠单元
     Parallel_correction2(mesh, equ, r_field, x_field);
+    MPI_Barrier(MPI_COMM_WORLD);
     //写回向量
     matrixToVector(r_field, r, mesh);
-
+    MPI_Barrier(MPI_COMM_WORLD);
     VectorXd p = r;         
     VectorXd Ap(n);
     
@@ -338,12 +342,17 @@ void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsi
     double local_b_norm = b_norm;
     double global_b_norm;
     // 使用 MPI_Allreduce 来将各个进程的 b_norm 求最大值（或总和等），确保每个进程能够看到全局的 b_norm
-MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 // 检查全局的 b_norm
 if (global_b_norm < 1e-13) {
     x.setZero();
     r0 = 0.0;
+    if (rank==0)
+    {
+       cout<<"全局b_norm小于1e-13，直接返回"<<endl;
+    }
+    
     MPI_Barrier(MPI_COMM_WORLD);
     return;  // 一旦判断为小于阈值，直接在所有进程处执行return
 }
@@ -361,10 +370,13 @@ if (global_b_norm < 1e-13) {
         MatrixXd p_field(mesh.ny+2, mesh.nx+2), Ap_field(mesh.ny+2, mesh.nx+2);
         vectorToMatrix(p, p_field, mesh);
         vectorToMatrix(Ap, Ap_field, mesh);
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(p_field, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
         Parallel_correction(mesh, equ, Ap_field, p_field);
+        MPI_Barrier(MPI_COMM_WORLD);
         matrixToVector(Ap_field, Ap, mesh);
-
+        MPI_Barrier(MPI_COMM_WORLD);
         // 计算步长
         double local_dot_p_Ap = p.dot(Ap);
         double global_dot_p_Ap;
@@ -380,7 +392,7 @@ if (global_b_norm < 1e-13) {
         double global_new_r_norm;
         MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         // 更新r0为当前全局残差
-        r0 = sqrt(global_new_r_norm)/n*num_procs;
+      
         // 使用绝对残差判断收敛性
        
 
@@ -390,7 +402,7 @@ if (global_b_norm < 1e-13) {
         global_r_norm = global_new_r_norm;
 
         // 保存当前残差
-        r0 = sqrt(global_new_r_norm);
+        r0 = sqrt(global_r_norm);
 
         /*if(rank == 0 && iter % 5 == 0) {
             std::cout << "Iteration " << iter 
@@ -401,6 +413,108 @@ if (global_b_norm < 1e-13) {
         iter++;
     }
     // 确保最终r0同步
-    MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+   // MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+
+void BiCGSTAB_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon,
+    int max_iter, int rank, int num_procs, double& r0) {
+    
+    int n = equ.A.rows();
+    SparseMatrix<double> A = equ.A;
+
+    VectorXd r = b - A * x;
+    MatrixXd r_field(mesh.ny+2, mesh.nx+2), x_field(mesh.ny+2, mesh.nx+2);
+    vectorToMatrix(r, r_field, mesh);
+    vectorToMatrix(x, x_field, mesh);
+    exchangeColumns(x_field, rank, num_procs);
+    Parallel_correction2(mesh, equ, r_field, x_field);
+    matrixToVector(r_field, r, mesh);
+
+    VectorXd r_tld = r;
+    VectorXd p = r, v = VectorXd::Zero(n), s, t;
+
+    double rho_old = 1.0, alpha = 1.0, omega = 1.0;
+    double rho_new, beta;
+
+    double r_norm = r.squaredNorm();
+    double local_b_norm = b.squaredNorm(), global_b_norm;
+    MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    if (global_b_norm < 1e-13) {
+        x.setZero();
+        r0 = 0.0;
+        MPI_Barrier(MPI_COMM_WORLD);
+        return;
+    }
+
+    double global_r_norm;
+    MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    r0 = sqrt(global_r_norm);
+
+    int iter = 0;
+    while (iter < max_iter) {
+        rho_new = r_tld.dot(r);
+        
+
+        if (iter == 0) {
+            p = r;
+        } else {
+            beta = (rho_new / rho_old) * (alpha / omega);
+            p = r + beta * (p - omega * v);
+        }
+
+        v = A * p;
+        MatrixXd p_field(mesh.ny+2, mesh.nx+2), v_field(mesh.ny+2, mesh.nx+2);
+        vectorToMatrix(p, p_field, mesh);
+        vectorToMatrix(v, v_field, mesh);
+        exchangeColumns(p_field, rank, num_procs);
+        Parallel_correction(mesh, equ, v_field, p_field);
+        matrixToVector(v_field, v, mesh);
+
+        double local_dot = r_tld.dot(v), global_dot;
+        MPI_Allreduce(&local_dot, &global_dot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        alpha = rho_new / global_dot;
+
+        s = r - alpha * v;
+
+        //  不再提前退出，即使 s 已收敛
+        double s_norm = s.squaredNorm(), global_s_norm;
+        MPI_Allreduce(&s_norm, &global_s_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        // if (sqrt(global_s_norm) < epsilon) {
+        //     x += alpha * p;
+        //     break;
+        // }
+
+        t = A * s;
+        MatrixXd s_field(mesh.ny+2, mesh.nx+2), t_field(mesh.ny+2, mesh.nx+2);
+        vectorToMatrix(s, s_field, mesh);
+        vectorToMatrix(t, t_field, mesh);
+        exchangeColumns(s_field, rank, num_procs);
+        Parallel_correction(mesh, equ, t_field, s_field);
+        matrixToVector(t_field, t, mesh);
+
+        double ts_dot = t.dot(s);
+        double tt_dot = t.dot(t);
+        double global_ts_dot, global_tt_dot;
+        MPI_Allreduce(&ts_dot, &global_ts_dot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&tt_dot, &global_tt_dot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        omega = global_ts_dot / global_tt_dot;
+
+        x += alpha * p + omega * s;
+        r = s - omega * t;
+
+        r_norm = r.squaredNorm();
+        MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        r0 = sqrt(global_r_norm);
+
+        // 不再使用残差判断终止
+        // if (r0 < epsilon) break;
+
+        rho_old = rho_new;
+        iter++;
+    }
+
     MPI_Barrier(MPI_COMM_WORLD);
 }
