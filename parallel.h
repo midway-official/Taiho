@@ -9,6 +9,7 @@ extern double total_comm_time; // 通信时间
 extern int total_comm_count,totalcount;   // 通信次数
 extern double start_time, end_time;
 // 发送矩阵列数据的函数声明
+/*
 void sendMatrixColumn(const MatrixXd& src_matrix, int src_col, 
                      MatrixXd& dst_matrix, int dst_col, 
                      int target_rank, int tag = 0);
@@ -16,8 +17,13 @@ void sendMatrixColumn(const MatrixXd& src_matrix, int src_col,
 // 接收矩阵列数据的函数声明
 void recvMatrixColumn(MatrixXd& dst_matrix, int dst_col,
                      int src_rank, int tag = 0);
-
-
+*/
+double computeHash(const vector<double>& data);
+void sendMatrixColumnWithSafety(const MatrixXd& src_matrix, int src_col, 
+                                 vector<double>& send_buffer, 
+                                 int target_rank, int tag);
+void recvMatrixColumnWithSafety(vector<double>& recv_buffer, 
+                                 int src_rank, int tag);
 
 //交互网格数据
 
