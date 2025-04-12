@@ -57,57 +57,87 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 
 
 
-
 int main(int argc, char* argv[]) 
-{
-    // 获取输入参数
-    std::string mesh_folder;
-    double dt;
-    int timesteps;
-    int n_splits;  // 并行计算线程数
-    double mu;
-    
-    if(argc == 6) {
+{    
+    MPI_Init(&argc, &argv);
+     // 获取进程信息
+     int rank, num_procs;
+     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+   // 获取输入参数，只在 rank 0 上执行
+std::string mesh_folder;
+double dt;
+int timesteps;
+int n_splits;
+double mu;
+
+if (rank == 0) {
+    if (argc == 6) {
         // 命令行参数输入
         mesh_folder = argv[1];
         dt = std::stod(argv[2]);
         timesteps = std::stoi(argv[3]);
-        mu= std::stod(argv[4]);
+        mu = std::stod(argv[4]);
         n_splits = std::stoi(argv[5]);
+
         std::cout << "从命令行读取参数:" << std::endl;
         std::cout << "网格文件夹: " << mesh_folder << std::endl;
         std::cout << "时间步长: " << dt << std::endl;
         std::cout << "时间步数: " << timesteps << std::endl;
         std::cout << "并行线程数: " << n_splits << std::endl;
         std::cout << "粘度: " << mu << std::endl;
-
-    }
-    else {
+    } else {
         // 手动输入
-        std::cout << "网格文件夹路径:";
+        std::cout << "网格文件夹路径: ";
         std::cin >> mesh_folder;
-        std::cout << "时间步长:";
+        std::cout << "时间步长: ";
         std::cin >> dt;
-        std::cout << "时间步长数:";
+        std::cout << "时间步数: ";
         std::cin >> timesteps;
-        std::cout << "并行线程数:";
+        std::cout << "并行线程数: ";
         std::cin >> n_splits;
-        std::cout << "粘度:";
+        std::cout << "粘度: ";
         std::cin >> mu;
     }
+}
 
-    // 检查参数合法性
-    if(dt <= 0 || timesteps <= 0 || n_splits <= 0) {
-        std::cerr << "错误: 时间步长、步数和并行线程数必须为正数" << std::endl;
-        return 1;
-    }
+// 同步字符串长度
+int folder_length;
+if (rank == 0) folder_length = mesh_folder.size();
+MPI_Bcast(&folder_length, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+// 同步字符串内容
+char* folder_cstr = new char[folder_length + 1];
+if (rank == 0) strcpy(folder_cstr, mesh_folder.c_str());
+MPI_Bcast(folder_cstr, folder_length + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
+if (rank != 0) mesh_folder = std::string(folder_cstr);
+delete[] folder_cstr;
+
+// 广播其他参数
+MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+MPI_Bcast(&timesteps, 1, MPI_INT, 0, MPI_COMM_WORLD);
+MPI_Bcast(&mu, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+// 各进程确认收到
+MPI_Barrier(MPI_COMM_WORLD);
+if (rank != 0) {
+    std::cout << "[进程 " << rank << "] 参数同步完成:" << std::endl;
+    std::cout << "网格文件夹: " << mesh_folder << std::endl;
+    std::cout << "时间步长: " << dt << std::endl;
+    std::cout << "时间步数: " << timesteps << std::endl;
+    std::cout << "并行线程数: " << n_splits << std::endl;
+    std::cout << "粘度: " << mu << std::endl;
+}
+
+    
 
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
     
     // 垂直分割网格
     std::vector<Mesh> sub_meshes = splitMeshVertically(original_mesh, n_splits);
-    
+    MPI_Barrier(MPI_COMM_WORLD);
     // 打印分割信息
     std::cout << "网格已分割为 " << n_splits << " 个子网格:" << std::endl;
     for(int i = 0; i < sub_meshes.size(); i++) {
@@ -115,13 +145,9 @@ int main(int argc, char* argv[])
                   << sub_meshes[i].nx << "x" << sub_meshes[i].ny << std::endl;
     }
     
-    // 初始化MPI环境
-    MPI_Init(&argc, &argv);
-     MPI_Barrier(MPI_COMM_WORLD);
-    // 获取进程信息
-    int rank, num_procs;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+   
 
     // 检查进程数是否匹配
     if(num_procs != n_splits) {
@@ -136,17 +162,31 @@ int main(int argc, char* argv[])
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
+    //初始化
+    mesh.u0.setZero();
+    mesh.v0.setZero();
     
+    mesh.p.setZero();
+    mesh.p_prime.setZero();
+    mesh.p_star.setZero();
     // ... 后续的计算过程 ...
+
+
+
    int nx0,ny0;
    nx0=mesh.nx;
    ny0=mesh.ny;
+
+
     //建立u v p的方程
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
+
+
+
     for (int i = 0; i <= timesteps; ++i) { 
         
        if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
@@ -160,13 +200,14 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         double init_l2_norm_x = -1.0;
        double init_l2_norm_y = -1.0;
-       double init_l2_norm_p = -1.0;
+       
        MPI_Barrier(MPI_COMM_WORLD);
        //1离散动量方程 
        double l2_norm_x, l2_norm_y;
        
-      
-       movement_function_PISO(mesh,equ_u,equ_v,mu,dt);
+       equ_v.initializeToZero();
+       equ_u.initializeToZero();
+       momentum_function_PISO(mesh,equ_u,equ_v,mu,dt);
        equ_u.build_matrix();
        equ_v.build_matrix();
 
@@ -178,10 +219,10 @@ int main(int argc, char* argv[])
        MPI_Barrier(MPI_COMM_WORLD);
        VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
        
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,15,rank,num_procs,l2_norm_x);
+      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,15,rank,num_procs,l2_norm_x);
+       MPI_Barrier(MPI_COMM_WORLD);
        
-       
-       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,15,rank,num_procs,l2_norm_y);
+       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,15,rank,num_procs,l2_norm_y);
        vectorToMatrix(x_v,mesh.u,mesh);
        vectorToMatrix(y_v,mesh.v,mesh);
        MPI_Barrier(MPI_COMM_WORLD);
@@ -208,14 +249,14 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         
         double epsilon_p=1e-5;
-       
+        equ_p.initializeToZero();
         pressure_function(mesh, equ_p, equ_u);
        
         // 重新更新源项并重建矩阵
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-7,20,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,50,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
@@ -244,7 +285,7 @@ int main(int argc, char* argv[])
         
      
         
-       
+        double init_l2_norm_p = -1.0;
         MPI_Barrier(MPI_COMM_WORLD);
        
        // 记录初始残差（仅第一次迭代）

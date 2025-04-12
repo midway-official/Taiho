@@ -597,7 +597,8 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
     
 
     // 更新压力场
-    double alpha_p = 0.01;  // 压力松弛因子
+
+    double alpha_p = 0.3;  // 压力松弛因子
     p_star = p + alpha_p * p_prime;
 }
 
@@ -795,7 +796,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time) {
 }
 
 
-void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
+void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
 {   
     //-1 压力出口(给定压强)
     //-2 固定速度
@@ -1039,7 +1040,7 @@ void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
     
 }
 
-void movement_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
+void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
 {   
     //-1 压力出口(给定压强)
     //-2 固定速度
@@ -1049,7 +1050,7 @@ void movement_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-    double alpha=0.5;
+    double alpha=1;
     
     D_e=dy*mu/(dx);
     D_w=dy*mu/(dx);
@@ -1282,7 +1283,7 @@ void movement_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
     equ_v.A_s = equ_u.A_s;
 }
 
-void movement_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
+void momentum_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
 {   
     //-1 压力出口(给定压强)
     //-2 固定速度

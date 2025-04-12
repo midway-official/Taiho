@@ -59,14 +59,14 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 
 
 int main(int argc, char* argv[]) 
-{
+{    
     // 获取输入参数
-    std::string mesh_folder;
-    double dt;
-    int timesteps;
+std::string mesh_folder;
+double dt;
+int timesteps;
     int n_splits;  // 并行计算线程数
-    double mu;
-    
+double mu;
+
     if(argc == 6) {
         // 命令行参数输入
         mesh_folder = argv[1];
@@ -113,7 +113,7 @@ int main(int argc, char* argv[])
     
     // 初始化MPI环境
     MPI_Init(&argc, &argv);
-     MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
     // 获取进程信息
     int rank, num_procs;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -134,7 +134,14 @@ int main(int argc, char* argv[])
     Mesh mesh = sub_meshes[rank];
     mesh.u0.setZero();
     mesh.v0.setZero();
-    // ... 后续的计算过程 ...
+    //mesh.u.setZero();
+    //mesh.v.setZero();
+    mesh.p.setZero();
+    mesh.p_prime.setZero();
+    mesh.p_star.setZero();
+
+
+   
    int nx0,ny0;
    nx0=mesh.nx;
    ny0=mesh.ny;
@@ -142,7 +149,7 @@ int main(int argc, char* argv[])
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
-   
+    
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
@@ -153,7 +160,7 @@ int main(int argc, char* argv[])
       
        //记录上一个时间步长的u v
       
-       int max_outer_iterations=10;
+       int max_outer_iterations=15;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -165,8 +172,9 @@ int main(int argc, char* argv[])
         //1离散动量方程 
         double l2_norm_x, l2_norm_y;
         
-        equ_v.source.setZero();
-        movement_function_unsteady(mesh,equ_u,equ_v,mu,dt);
+        equ_v.initializeToZero();
+        equ_u.initializeToZero();
+        momentum_function_unsteady(mesh,equ_u,equ_v,mu,dt);
         
         equ_u.build_matrix();
         equ_v.build_matrix();
@@ -179,10 +187,10 @@ int main(int argc, char* argv[])
         MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-6,20,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,20,rank,num_procs,l2_norm_x);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-6,20,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,20,rank,num_procs,l2_norm_y);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -220,7 +228,7 @@ int main(int argc, char* argv[])
        
         VectorXd p_v(mesh.internumber);
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-8,60,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,100,rank,num_procs,l2_norm_p);
         MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);

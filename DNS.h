@@ -85,9 +85,9 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time);
 
 //离散动量方程
 
-void movement_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re);
-void movement_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
-void movement_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
+void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re);
+void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
+void momentum_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
 //竖向分割网格
 vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n);
 //合并网格
