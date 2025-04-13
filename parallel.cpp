@@ -24,44 +24,51 @@ void recvMatrixColumn(std::vector<double>& recv_buffer,
     MPI_Recv(recv_buffer.data(), rows, MPI_DOUBLE, src_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }*/
 
-// 计算数据的哈希值（简单版）
 double computeHash(const vector<double>& data) {
-    double hash = 0.0;
-    for (size_t i = 0; i < data.size(); i++) {
-        hash += data[i] * 0.1;  // 使用简单的加权累加方法
+    double hash = 2166136261.0;  // FNV offset basis
+    const double prime = 16777619.0;
+    for (double val : data) {
+        hash = fmod((hash * prime), 1e18);  // 保持数值稳定
+        hash += val;
     }
     return hash;
 }
 
 // 发送矩阵列数据，并验证哈希值
 void sendMatrixColumnWithSafety(const MatrixXd& src_matrix, int src_col, 
-                                 vector<double>& send_buffer, 
-                                 int target_rank, int tag) {
-    int rows = src_matrix.rows();
-    send_buffer.resize(rows);
-    for (int i = 0; i < rows; i++) {
-        send_buffer[i] = src_matrix(i, src_col);
-    }
+    vector<double>& send_buffer, 
+    int target_rank, int tag) {
+int rows = src_matrix.rows();
+send_buffer.resize(rows + 1);  // 多一个位置放 hash
 
-    // 计算并发送数据的哈希值
-    double hash_value = computeHash(send_buffer);
-    MPI_Send(&hash_value, 1, MPI_DOUBLE, target_rank, tag, MPI_COMM_WORLD);
-    MPI_Send(send_buffer.data(), rows, MPI_DOUBLE, target_rank, tag+1, MPI_COMM_WORLD);
+for (int i = 0; i < rows; i++) {
+send_buffer[i+1] = src_matrix(i, src_col);
 }
 
-// 接收矩阵列数据，并验证哈希值
-void recvMatrixColumnWithSafety(vector<double>& recv_buffer, 
-                                 int src_rank, int tag) {
-    int rows = recv_buffer.size();
-    double recv_hash;
-    MPI_Recv(&recv_hash, 1, MPI_DOUBLE, src_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    MPI_Recv(recv_buffer.data(), rows, MPI_DOUBLE, src_rank, tag+1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+double hash_value = computeHash(vector<double>(send_buffer.begin() + 1, send_buffer.end()));
+send_buffer[0] = hash_value;
 
-    // 验证接收到的数据哈希值
+MPI_Request request;
+MPI_Isend(send_buffer.data(), rows+1, MPI_DOUBLE, target_rank, tag, MPI_COMM_WORLD, &request);
+MPI_Wait(&request, MPI_STATUS_IGNORE);
+}
+void recvMatrixColumnWithSafety(vector<double>& recv_buffer, int src_rank, int tag) {
+    int rows = recv_buffer.size();
+    vector<double> full_buffer(rows + 1);  // 接收 hash+数据
+
+    MPI_Request request;
+    MPI_Irecv(full_buffer.data(), rows+1, MPI_DOUBLE, src_rank, tag, MPI_COMM_WORLD, &request);
+    MPI_Wait(&request, MPI_STATUS_IGNORE);
+
+    double recv_hash = full_buffer[0];
+    for (int i = 0; i < rows; i++) {
+        recv_buffer[i] = full_buffer[i+1];
+    }
+
     double computed_hash = computeHash(recv_buffer);
-    if (abs(computed_hash - recv_hash) > 1e-5) {  // 偏差阈值
-        cerr << "数据校验失败！计算哈希与接收哈希不匹配！" << endl;
-        MPI_Abort(MPI_COMM_WORLD, 1);  // 强制终止程序
+    if (abs(computed_hash - recv_hash) > 1e-5) {
+        cerr << "数据校验失败！哈希不匹配！" << endl;
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
 }
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
@@ -73,7 +80,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     vector<double> recv_left_0(rows), recv_left_1(rows);
     vector<double> recv_right_0(rows), recv_right_1(rows);
 
-    // 填充发送数据
+    // 填充数据
     for (int i = 0; i < rows; i++) {
         send_left_0[i] = matrix(i, 2);
         send_left_1[i] = matrix(i, 3);
@@ -81,40 +88,44 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         send_right_1[i] = matrix(i, cols-3);
     }
 
-    MPI_Status status;
-    // 左右交换（左收，右发）
-    if (rank != 0) {
-        MPI_Sendrecv(send_left_0.data(), rows, MPI_DOUBLE, rank-1, 0,
-                     recv_left_0.data(), rows, MPI_DOUBLE, rank-1, 2,
-                     MPI_COMM_WORLD, &status);
-        MPI_Sendrecv(send_left_1.data(), rows, MPI_DOUBLE, rank-1, 1,
-                     recv_left_1.data(), rows, MPI_DOUBLE, rank-1, 3,
-                     MPI_COMM_WORLD, &status);
+    MPI_Request requests[8];
+    int req_count = 0;
+
+    // 确定左右邻居
+    int left_rank = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
+
+    // 左邻居通信
+    if (left_rank != MPI_PROC_NULL) {
+        sendMatrixColumnWithSafety(matrix, 2, send_left_0, left_rank, 0);
+        sendMatrixColumnWithSafety(matrix, 3, send_left_1, left_rank, 1);
+        recvMatrixColumnWithSafety(recv_left_0, left_rank, 2);
+        recvMatrixColumnWithSafety(recv_left_1, left_rank, 3);
     }
 
-    if (rank != num_procs-1) {
-        MPI_Sendrecv(send_right_0.data(), rows, MPI_DOUBLE, rank+1, 2,
-                     recv_right_0.data(), rows, MPI_DOUBLE, rank+1, 0,
-                     MPI_COMM_WORLD, &status);
-        MPI_Sendrecv(send_right_1.data(), rows, MPI_DOUBLE, rank+1, 3,
-                     recv_right_1.data(), rows, MPI_DOUBLE, rank+1, 1,
-                     MPI_COMM_WORLD, &status);
+    // 右邻居通信
+    if (right_rank != MPI_PROC_NULL) {
+        sendMatrixColumnWithSafety(matrix, cols - 4, send_right_0, right_rank, 2);
+        sendMatrixColumnWithSafety(matrix, cols - 3, send_right_1, right_rank, 3);
+        recvMatrixColumnWithSafety(recv_right_0, right_rank, 0);
+        recvMatrixColumnWithSafety(recv_right_1, right_rank, 1);
     }
 
     // 更新矩阵
-    if (rank != 0) {
+    if (left_rank != MPI_PROC_NULL) {
         for (int i = 0; i < rows; i++) {
             matrix(i, 0) = recv_left_0[i];
             matrix(i, 1) = recv_left_1[i];
         }
     }
-    if (rank != num_procs-1) {
+    if (right_rank != MPI_PROC_NULL) {
         for (int i = 0; i < rows; i++) {
-            matrix(i, cols-2) = recv_right_0[i];
-            matrix(i, cols-1) = recv_right_1[i];
+            matrix(i, cols - 2) = recv_right_0[i];
+            matrix(i, cols - 1) = recv_right_1[i];
         }
     }
 }
+
 /*
 // 稳定版列交换（阻塞通信）
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {

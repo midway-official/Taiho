@@ -4,7 +4,52 @@
 #include "parallel.h"
 #include <eigen3/Eigen/QR>
 #include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Sparse>
+#include <eigen3/Eigen/SparseLU>
 namespace fs = std::filesystem;
+
+
+
+// 稀疏矩阵条件数估算函数
+double estimateConditionNumber(const Eigen::SparseMatrix<double>& A) {
+    typedef Eigen::SparseMatrix<double> SpMat;
+    typedef Eigen::VectorXd Vec;
+
+    // 先求矩阵范数：这里用最大行和范数（infinity norm）
+    double normA = 0.0;
+    for (int i = 0; i < A.rows(); ++i) {
+        double rowSum = 0.0;
+        for (SpMat::InnerIterator it(A, i); it; ++it) {
+            rowSum += std::abs(it.value());
+        }
+        normA = std::max(normA, rowSum);
+    }
+
+    // 用SparseLU求逆矩阵Ax=b的解，来近似求A逆的范数
+    Eigen::SparseLU<SpMat> solver;
+    solver.compute(A);
+    if (solver.info() != Eigen::Success) {
+        std::cerr << "矩阵分解失败，无法估算条件数" << std::endl;
+        return -1.0;
+    }
+
+    // b为全1向量
+    Vec b = Vec::Ones(A.rows());
+    Vec x = solver.solve(b);
+    if (solver.info() != Eigen::Success) {
+        std::cerr << "求解失败，无法估算条件数" << std::endl;
+        return -1.0;
+    }
+
+    // 求A逆范数（用解向量x的无穷范数近似）
+    double normInvA = x.lpNorm<Eigen::Infinity>();
+
+    // 条件数估算
+    double cond = normA * normInvA;
+    return cond;
+}
+
+
 void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder = "") {
     // 创建文件名
     std::string u_filename = "u_" + std::to_string(rank) + ".dat";
@@ -121,14 +166,14 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 // 各进程确认收到
 MPI_Barrier(MPI_COMM_WORLD);
-if (rank != 0) {
+/*if (rank != 0) {
     std::cout << "[进程 " << rank << "] 参数同步完成:" << std::endl;
     std::cout << "网格文件夹: " << mesh_folder << std::endl;
     std::cout << "时间步长: " << dt << std::endl;
     std::cout << "时间步数: " << timesteps << std::endl;
     std::cout << "并行线程数: " << n_splits << std::endl;
     std::cout << "粘度: " << mu << std::endl;
-}
+}*/
 
     
 
@@ -139,11 +184,16 @@ if (rank != 0) {
     std::vector<Mesh> sub_meshes = splitMeshVertically(original_mesh, n_splits);
     MPI_Barrier(MPI_COMM_WORLD);
     // 打印分割信息
-    std::cout << "网格已分割为 " << n_splits << " 个子网格:" << std::endl;
+    if (rank==0)
+    {
+        std::cout << "网格已分割为 " << n_splits << " 个子网格:" << std::endl;
     for(int i = 0; i < sub_meshes.size(); i++) {
         std::cout << "子网格 " << i << " 尺寸: " 
                   << sub_meshes[i].nx << "x" << sub_meshes[i].ny << std::endl;
     }
+    }
+    
+    
     
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -211,8 +261,8 @@ if (rank != 0) {
        equ_u.build_matrix();
        equ_v.build_matrix();
 
-
-   
+  
+        
        //3求解线性方程组
        double epsilon_uv=0.01;
       
@@ -260,7 +310,9 @@ if (rank != 0) {
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
-       
+        
+         
+                
         
         MPI_Barrier(MPI_COMM_WORLD);
         //8压力修正
