@@ -134,8 +134,8 @@ double mu;
     Mesh mesh = sub_meshes[rank];
     mesh.u0.setZero();
     mesh.v0.setZero();
-    //mesh.u.setZero();
-    //mesh.v.setZero();
+   // mesh.u.setZero();
+   // mesh.v.setZero();
     mesh.p.setZero();
     mesh.p_prime.setZero();
     mesh.p_star.setZero();
@@ -153,12 +153,7 @@ double mu;
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
-    for (int i = 0; i <= timesteps; ++i) { 
-        
-       if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
-        // 切换到当前编号文件夹
-      
-       //记录上一个时间步长的u v
+    
       
        int max_outer_iterations=300;
            //simple算法迭代
@@ -174,14 +169,14 @@ double mu;
         
         equ_v.initializeToZero();
         equ_u.initializeToZero();
-        momentum_function_PISO(mesh,equ_u,equ_v,mu,dt);
+        momentum_function(mesh,equ_u,equ_v,mu);
         
         equ_u.build_matrix();
         equ_v.build_matrix();
 
 
     
-         //3求解线性方程组
+        //3求解线性方程组
         double epsilon_uv=0.01;
        
         MPI_Barrier(MPI_COMM_WORLD);
@@ -229,12 +224,7 @@ double mu;
         
        
         VectorXd p_v(mesh.internumber);
-
-
         p_v.setZero();
-    
-
-
         MPI_Barrier(MPI_COMM_WORLD);
         CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,50,rank,num_procs,l2_norm_p);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -277,7 +267,7 @@ double norm_res_p = (init_l2_norm_p > 1e-200) ? l2_norm_p / init_l2_norm_p : 0.0
 // 只在主进程(rank=0)打印残差信息
 if(rank == 0) {
     std::cout << scientific 
-              << "时间步: " << i 
+             
               << " 迭代轮数: " << n 
               <<"  归一化残差："
               << " u: " << setprecision(4) << norm_res_x
@@ -304,14 +294,14 @@ if(global_converged) {
         std::cout << "所有进程达到收敛条件" << std::endl;
     }
     break;
-}
+}    
+        saveMeshData(mesh,rank);
     MPI_Barrier(MPI_COMM_WORLD);
     }
-    //时间推进
+    
     saveMeshData(mesh,rank);
-    mesh.u0 = mesh.u_star;
-    mesh.v0 = mesh.v_star;
-    }
+
+    
     
    
     // 最后显示实际计算总耗时

@@ -268,7 +268,8 @@ MPI_Barrier(MPI_COMM_WORLD);
       
        MPI_Barrier(MPI_COMM_WORLD);
        VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
-       
+       x_v.setZero();
+       y_v.setZero();
       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,15,rank,num_procs,l2_norm_x);
        MPI_Barrier(MPI_COMM_WORLD);
        
@@ -306,6 +307,7 @@ MPI_Barrier(MPI_COMM_WORLD);
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
+        p_v.setZero();
         CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,50,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);

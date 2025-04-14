@@ -6,23 +6,6 @@ double total_comm_time = 0.0; // 通信时间
 int total_comm_count = 0;     // 通信次数
 double start_time, end_time;
 int totalcount = 0;  
-/*// 发送矩阵列数据
-void sendMatrixColumn(const MatrixXd& src_matrix, int src_col, 
-                      std::vector<double>& send_buffer, 
-                      int target_rank, int tag) {
-    int rows = src_matrix.rows();
-    send_buffer.resize(rows);
-    for (int i = 0; i < rows; i++) {
-        send_buffer[i] = src_matrix(i, src_col);
-    }
-    MPI_Send(send_buffer.data(), rows, MPI_DOUBLE, target_rank, tag, MPI_COMM_WORLD);
-}
-
-void recvMatrixColumn(std::vector<double>& recv_buffer, 
-                      int src_rank, int tag) {
-    int rows = recv_buffer.size();
-    MPI_Recv(recv_buffer.data(), rows, MPI_DOUBLE, src_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-}*/
 
 double computeHash(const vector<double>& data) {
     double hash = 2166136261.0;  // FNV offset basis
@@ -71,34 +54,35 @@ void recvMatrixColumnWithSafety(vector<double>& recv_buffer, int src_rank, int t
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 }
+/*
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
     const int cols = matrix.cols();
 
-    vector<double> send_left_0(rows), send_left_1(rows);
-    vector<double> send_right_0(rows), send_right_1(rows);
-    vector<double> recv_left_0(rows), recv_left_1(rows);
-    vector<double> recv_right_0(rows), recv_right_1(rows);
+    // 初始化缓冲区，先全置 0
+    vector<double> send_left_0(rows, 0.0), send_left_1(rows, 0.0);
+    vector<double> send_right_0(rows, 0.0), send_right_1(rows, 0.0);
+    vector<double> recv_left_0(rows, 0.0), recv_left_1(rows, 0.0);
+    vector<double> recv_right_0(rows, 0.0), recv_right_1(rows, 0.0);
 
-    // 填充数据
+    // 填充发送数据
     for (int i = 0; i < rows; i++) {
-        send_left_0[i] = matrix(i, 2);
-        send_left_1[i] = matrix(i, 3);
-        send_right_0[i] = matrix(i, cols-4);
-        send_right_1[i] = matrix(i, cols-3);
+        send_left_0[i]  = matrix(i, 2);
+        send_left_1[i]  = matrix(i, 3);
+        send_right_0[i] = matrix(i, cols - 4);
+        send_right_1[i] = matrix(i, cols - 3);
     }
 
-    MPI_Request requests[8];
-    int req_count = 0;
-
-    // 确定左右邻居
-    int left_rank = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int left_rank  = (rank == 0) ? MPI_PROC_NULL : rank - 1;
     int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
 
     // 左邻居通信
     if (left_rank != MPI_PROC_NULL) {
         sendMatrixColumnWithSafety(matrix, 2, send_left_0, left_rank, 0);
         sendMatrixColumnWithSafety(matrix, 3, send_left_1, left_rank, 1);
+        // 先清空接收缓冲区，虽然构造时是0，这里显式清一下更安全
+        std::fill(recv_left_0.begin(), recv_left_0.end(), 0.0);
+        std::fill(recv_left_1.begin(), recv_left_1.end(), 0.0);
         recvMatrixColumnWithSafety(recv_left_0, left_rank, 2);
         recvMatrixColumnWithSafety(recv_left_1, left_rank, 3);
     }
@@ -107,6 +91,9 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     if (right_rank != MPI_PROC_NULL) {
         sendMatrixColumnWithSafety(matrix, cols - 4, send_right_0, right_rank, 2);
         sendMatrixColumnWithSafety(matrix, cols - 3, send_right_1, right_rank, 3);
+        // 同样清空接收缓冲区
+        std::fill(recv_right_0.begin(), recv_right_0.end(), 0.0);
+        std::fill(recv_right_1.begin(), recv_right_1.end(), 0.0);
         recvMatrixColumnWithSafety(recv_right_0, right_rank, 0);
         recvMatrixColumnWithSafety(recv_right_1, right_rank, 1);
     }
@@ -124,77 +111,171 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
             matrix(i, cols - 1) = recv_right_1[i];
         }
     }
-}
+}*/
+
 
 /*
-// 稳定版列交换（阻塞通信）
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
-    const int nSend = (rank == 0 || rank == num_procs-1) ? 2 : 4;
+    const int cols = matrix.cols();
 
-    std::vector<std::vector<double>> send_buffers(nSend, std::vector<double>(rows));
-    std::vector<std::vector<double>> recv_buffers(nSend, std::vector<double>(rows));
+    // 每次发两列，接收两列，打包后统一处理
+    vector<double> send_left_buffer(2 * rows, 0.0);
+    vector<double> send_right_buffer(2 * rows, 0.0);
+    vector<double> recv_left_buffer(2 * rows, 0.0);
+    vector<double> recv_right_buffer(2 * rows, 0.0);
 
-    // 0号进程 → 右
-    if (rank == 0) {
-        sendMatrixColumn(matrix, matrix.cols()-4, send_buffers[0], rank+1, 0);
-        sendMatrixColumn(matrix, matrix.cols()-3, send_buffers[1], rank+1, 1);
+    int left_rank = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
 
-        recvMatrixColumn(recv_buffers[0], rank+1, 2);
-        recvMatrixColumn(recv_buffers[1], rank+1, 3);
-    }
-    // 最后一个进程 → 左
-    else if (rank == num_procs-1) {
-        sendMatrixColumn(matrix, 2, send_buffers[0], rank-1, 2);
-        sendMatrixColumn(matrix, 3, send_buffers[1], rank-1, 3);
+    MPI_Request requests[4];
+    int req_count = 0;
 
-        recvMatrixColumn(recv_buffers[0], rank-1, 0);
-        recvMatrixColumn(recv_buffers[1], rank-1, 1);
-    }
-    // 中间进程 ↔ 左右
-    else {
-        // 发送到左
-        sendMatrixColumn(matrix, 2, send_buffers[0], rank-1, 2);
-        sendMatrixColumn(matrix, 3, send_buffers[1], rank-1, 3);
-
-        // 发送到右
-        sendMatrixColumn(matrix, matrix.cols()-4, send_buffers[2], rank+1, 0);
-        sendMatrixColumn(matrix, matrix.cols()-3, send_buffers[3], rank+1, 1);
-
-        // 接收来自左
-        recvMatrixColumn(recv_buffers[0], rank-1, 0);
-        recvMatrixColumn(recv_buffers[1], rank-1, 1);
-
-        // 接收来自右
-        recvMatrixColumn(recv_buffers[2], rank+1, 2);
-        recvMatrixColumn(recv_buffers[3], rank+1, 3);
-    }
-
-    // 拷贝recv_buffer到对应位置
-    if (rank == 0) {
+    // 打包左邻居要发的数据
+    if (left_rank != MPI_PROC_NULL) {
         for (int i = 0; i < rows; i++) {
-            matrix(i, matrix.cols()-2) = recv_buffers[0][i];
-            matrix(i, matrix.cols()-1) = recv_buffers[1][i];
+            send_left_buffer[i] = matrix(i, 2);    // 第2列
+            send_left_buffer[i + rows] = matrix(i, 3);  // 第3列
         }
+        MPI_Isend(send_left_buffer.data(), 2 * rows, MPI_DOUBLE, left_rank, 0, MPI_COMM_WORLD, &requests[req_count++]);
+        MPI_Irecv(recv_left_buffer.data(), 2 * rows, MPI_DOUBLE, left_rank, 1, MPI_COMM_WORLD, &requests[req_count++]);
     }
-    else if (rank == num_procs-1) {
+
+    // 打包右邻居要发的数据
+    if (right_rank != MPI_PROC_NULL) {
         for (int i = 0; i < rows; i++) {
-            matrix(i, 0) = recv_buffers[0][i];
-            matrix(i, 1) = recv_buffers[1][i];
+            send_right_buffer[i] = matrix(i, cols - 4);    // 倒数第4列
+            send_right_buffer[i + rows] = matrix(i, cols - 3);  // 倒数第3列
         }
+        MPI_Isend(send_right_buffer.data(), 2 * rows, MPI_DOUBLE, right_rank, 1, MPI_COMM_WORLD, &requests[req_count++]);
+        MPI_Irecv(recv_right_buffer.data(), 2 * rows, MPI_DOUBLE, right_rank, 0, MPI_COMM_WORLD, &requests[req_count++]);
     }
-    else {
+
+    // 等待所有请求完成
+    MPI_Waitall(req_count, requests, MPI_STATUSES_IGNORE);
+
+    // 更新矩阵
+    if (left_rank != MPI_PROC_NULL) {
         for (int i = 0; i < rows; i++) {
-            matrix(i, 0) = recv_buffers[0][i];
-            matrix(i, 1) = recv_buffers[1][i];
-            matrix(i, matrix.cols()-2) = recv_buffers[2][i];
-            matrix(i, matrix.cols()-1) = recv_buffers[3][i];
+            // 确保接收到的数据有效，防止 NaN
+            if (std::isnan(recv_left_buffer[i])) {
+                std::cerr << "Rank " << rank << " detected NaN at left buffer [" << i << "]\n";
+                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
+            }
+            matrix(i, 0) = recv_left_buffer[i];  // 更新第0列
+
+            if (std::isnan(recv_left_buffer[i + rows])) {
+                std::cerr << "Rank " << rank << " detected NaN at left buffer [" << i + rows << "]\n";
+                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
+            }
+            matrix(i, 1) = recv_left_buffer[i + rows];  // 更新第1列
         }
     }
 
-    // 全体同步
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (right_rank != MPI_PROC_NULL) {
+        for (int i = 0; i < rows; i++) {
+            // 确保接收到的数据有效，防止 NaN
+            if (std::isnan(recv_right_buffer[i])) {
+                std::cerr << "Rank " << rank << " detected NaN at right buffer [" << i << "]\n";
+                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
+            }
+            matrix(i, cols - 2) = recv_right_buffer[i];  // 更新倒数第2列
+
+            if (std::isnan(recv_right_buffer[i + rows])) {
+                std::cerr << "Rank " << rank << " detected NaN at right buffer [" << i + rows << "]\n";
+                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
+            }
+            matrix(i, cols - 1) = recv_right_buffer[i + rows];  // 更新倒数第1列
+        }
+    }
 }*/
+//
+
+
+//超高性能的列交换函数
+void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
+    const int rows = matrix.rows();
+    const int cols = matrix.cols();
+
+    // 确定左右邻居
+    int left_rank = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
+
+    // 聚合通信：打包4列 {2,3,cols-4,cols-3}
+    const int num_cols_per_side = 2;
+    const int num_total_cols = num_cols_per_side * 2;
+    vector<double> sendbuf_left(rows * num_cols_per_side);
+    vector<double> sendbuf_right(rows * num_cols_per_side);
+    vector<double> recvbuf_left(rows * num_cols_per_side);
+    vector<double> recvbuf_right(rows * num_cols_per_side);
+
+    // 填充发送缓冲区
+    for (int i = 0; i < rows; i++) {
+        sendbuf_left[i * num_cols_per_side + 0] = matrix(i, 2);
+        sendbuf_left[i * num_cols_per_side + 1] = matrix(i, 3);
+
+        sendbuf_right[i * num_cols_per_side + 0] = matrix(i, cols - 4);
+        sendbuf_right[i * num_cols_per_side + 1] = matrix(i, cols - 3);
+    }
+
+    // 建立 persistent communicator topology（cartesian 拓扑）
+    MPI_Comm cart_comm;
+    int dims[1] = { num_procs };
+    int periods[1] = { 0 };
+    MPI_Cart_create(MPI_COMM_WORLD, 1, dims, periods, 0, &cart_comm);
+
+    // 定义 sendcounts / recvcounts / displacements / types
+    int sendcounts[2] = { rows * num_cols_per_side, rows * num_cols_per_side };
+    int recvcounts[2] = { rows * num_cols_per_side, rows * num_cols_per_side };
+    MPI_Aint sdispls[2], rdispls[2];
+    MPI_Datatype types[2] = { MPI_DOUBLE, MPI_DOUBLE };
+
+    sdispls[0] = 0;
+    sdispls[1] = (MPI_Aint)(sendbuf_right.data() - sendbuf_left.data()) * sizeof(double);
+
+    rdispls[0] = 0;
+    rdispls[1] = (MPI_Aint)(recvbuf_right.data() - recvbuf_left.data()) * sizeof(double);
+
+    // Persistent request（2邻居、双缓冲）
+    MPI_Request requests[4];
+
+    MPI_Send_init(sendbuf_left.data(), sendcounts[0], MPI_DOUBLE, left_rank, 0, MPI_COMM_WORLD, &requests[0]);
+    MPI_Recv_init(recvbuf_left.data(), recvcounts[0], MPI_DOUBLE, left_rank, 1, MPI_COMM_WORLD, &requests[1]);
+
+    MPI_Send_init(sendbuf_right.data(), sendcounts[1], MPI_DOUBLE, right_rank, 1, MPI_COMM_WORLD, &requests[2]);
+    MPI_Recv_init(recvbuf_right.data(), recvcounts[1], MPI_DOUBLE, right_rank, 0, MPI_COMM_WORLD, &requests[3]);
+
+    // 启动所有通信（双缓冲+重叠）
+    MPI_Startall(4, requests);
+
+    // ⚙️ 这里可以放主计算部分，与通信重叠执行
+    // heavy_computation(matrix);
+
+    // 等待通信完成
+    MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+
+    // 更新矩阵边界值
+    if (left_rank != MPI_PROC_NULL) {
+        for (int i = 0; i < rows; i++) {
+            matrix(i, 0) = recvbuf_left[i * num_cols_per_side + 0];
+            matrix(i, 1) = recvbuf_left[i * num_cols_per_side + 1];
+        }
+    }
+
+    if (right_rank != MPI_PROC_NULL) {
+        for (int i = 0; i < rows; i++) {
+            matrix(i, cols - 2) = recvbuf_right[i * num_cols_per_side + 0];
+            matrix(i, cols - 1) = recvbuf_right[i * num_cols_per_side + 1];
+        }
+    }
+
+    // 释放 persistent request 和 communicator
+    for (int i = 0; i < 4; ++i) {
+        MPI_Request_free(&requests[i]);
+    }
+    MPI_Comm_free(&cart_comm);
+}
+
 
 // 从解向量转换为场矩阵
 void vectorToMatrix(const VectorXd& x, MatrixXd& phi, const Mesh& mesh) {
