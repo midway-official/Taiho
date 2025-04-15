@@ -8,7 +8,7 @@ double dx, dy, vx;
 double velocity;
 double l2_norm_x = 0.0, l2_norm_y = 0.0, l2_norm_p = 0.0;
 double a, b;
-double alpha_uv =0.5; 
+ 
 void printMatrix(const MatrixXd& matrix, const string& name, int precision ) {
     // 设置输出格式
     IOFormat fmt(precision, 0, ", ", "\n", "[", "]");
@@ -43,6 +43,9 @@ void Mesh::initializeToZero() {
     v_face.setZero();
     u0.setZero();   
     v0.setZero();
+    bctype.setZero();
+    zoneid.setZero();
+    interid.setZero();
    
 }
 
@@ -379,6 +382,9 @@ void solve(Equation& equation, double epsilon, double& l2_norm, MatrixXd& phi){
         }
     }
 }
+
+
+
 void face_velocity(Mesh& mesh, Equation& equ_u) {
     MatrixXd& u_face = mesh.u_face;
     MatrixXd& v_face = mesh.v_face;
@@ -492,7 +498,132 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
 
     }
 }
-}      
+
+
+
+}     
+
+
+void face_velocity_S(Mesh& mesh, Equation& equ_u) {
+    MatrixXd& u_face = mesh.u_face;
+    MatrixXd& v_face = mesh.v_face;
+    MatrixXd& bctype = mesh.bctype;
+    MatrixXd& u = mesh.u;
+    MatrixXd& v = mesh.v;
+    MatrixXd& p = mesh.p;
+    MatrixXd& A_p = equ_u.A_p;
+    double alpha_uv=0.1;
+
+    
+    // 遍历 u_face (ny + 2, nx + 1)
+    for(int i = 0; i <= mesh.ny + 1; i++) {
+        for(int j = 0; j <= mesh.nx; j++) {
+             
+             
+
+
+
+            if( ((bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
+ (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
+ (bctype(i,j) == -3 && bctype(i,j+1) == 0))) {
+                 if (bctype(i,j+2)==-2)
+             {
+                p(i,j+2)=p(i,j+1);
+             }
+             if (bctype(i,j-1)==-2)
+             {
+                p(i,j-1)=p(i,j);
+             }
+             if (bctype(i,j+2)==-1)
+             {
+                p(i,j+2)=0;
+             }
+             if (bctype(i,j-1)==-1)
+             {
+                p(i,j-1)=0;
+             }
+                u_face(i,j) = 0.5*(u(i,j) + u(i,j+1))
+                    + 0.25*alpha_uv*(p(i,j+1) - p(i,j-1))*dy*dx/A_p(i,j)*dx 
+                    + 0.25*alpha_uv*(p(i,j+2) - p(i,j))*dy*dx/A_p(i,j+1)*dx
+                    - 0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i,j+1))*(p(i,j+1) - p(i,j))*dy*dx/dx;
+            }
+         
+            if( (bctype(i,j) == 0 && bctype(i,j+1) == -1 ) ){
+                u_face(i,j)=u(i,j);
+             
+                
+              }
+            if( (bctype(i,j) == -1 && bctype(i,j+1) == 0 ) ){
+                u_face(i,j)=u(i,j+1);
+                
+
+              }    
+            if( (bctype(i,j) == 0 && bctype(i,j+1) == -2 ) ){
+                    u_face(i,j)=mesh.zoneu[mesh.zoneid(i,j+1)];
+                    
+                  }
+                if( (bctype(i,j) == -2 && bctype(i,j+1) == 0 ) ){
+                    u_face(i,j)=mesh.zoneu[mesh.zoneid(i,j)];
+                    
+  
+                  }  
+        }
+    }
+    
+    // 遍历 v_face (ny + 1, nx + 2)
+    for(int i = 0; i <= mesh.ny; i++) {
+        for(int j = 0; j <= mesh.nx + 1; j++) {
+            if((bctype(i,j) == 0 )&&(   bctype(i+1,j) ==0)) {
+                if (bctype(i+2,j)==-2)
+                {
+                   p(i+2,j)=p(i+1,j);
+                }
+                if (bctype(i-1,j)==-2)
+                {
+                   p(i-1,j)=p(i,j);
+                }
+                if (bctype(i+2,j)==-1)
+                {
+                   p(i+2,j)=0;
+                }
+                if (bctype(i-1,j)==-1)
+                {
+                   p(i-1,j)=0;
+                }
+                v_face(i,j) = 0.5*(v(i+1,j) + v(i,j))
+                    + 0.25*alpha_uv*(p(i,j) - p(i+2,j))*dx/A_p(i+1,j)
+                    + 0.25*alpha_uv*(p(i-1,j) - p(i+1,j))*dx/A_p(i,j)
+                    - 0.5*alpha_uv*(1/A_p(i+1,j) + 1/A_p(i,j))*(p(i,j) - p(i+1,j))*dx;
+            }
+            
+
+            if( (bctype(i,j) == 0 && bctype(i+1,j) == -2 ) ){
+                v_face(i,j)=mesh.zonev[mesh.zoneid(i+1,j)];
+                
+              }
+            if( (bctype(i,j) == -2 && bctype(i+1,j) == 0 ) ){
+                v_face(i,j)=mesh.zonev[mesh.zoneid(i,j)];
+                
+
+              }
+         if( (bctype(i,j) == 0 && bctype(i+1,j) == -1 ) ){
+            v_face(i,j)=v(i,j);
+            
+          }
+        if( (bctype(i,j) == -1 && bctype(i+1,j) == 0 ) ){
+            v_face(i,j)=v(i+1,j);
+            
+          }
+
+    }
+}
+
+
+
+}    
+
+
+
 void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
 {
     
@@ -515,7 +646,7 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
                 double Ap_temp = 0;
                 double source_temp = 0;
                 // 检查东面
-                if(bctype(i,j+1) == 0||bctype(i,j+1) == -3) {
+                if(bctype(i,j+1) == 0) {
                     Ap_e(i,j) = 0.5*(1/A_p(i,j) +1/A_p(i,j+1))*(dy*dy);
                     Ap_temp += Ap_e(i,j);
                 }  
@@ -531,7 +662,7 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
                 }
 
                 // 检查西面
-                if(bctype(i,j-1) == 0||bctype(i,j+1) == -3) {
+                if(bctype(i,j-1) == 0) {
                     Ap_w(i,j) = 0.5*(1/A_p(i,j) + 1/A_p(i,j-1))*(dy*dy);
                     Ap_temp += Ap_w(i,j);
                 }
@@ -576,6 +707,93 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
     }
 }
 
+
+
+
+void pressure_function_S(Mesh &mesh, Equation &equ_p, Equation &equ_u)
+{
+    
+    MatrixXd &u_face = mesh.u_face;
+    MatrixXd &v_face = mesh.v_face;
+    MatrixXd &bctype = mesh.bctype;
+    MatrixXd &A_p = equ_u.A_p;
+    MatrixXd &Ap_p = equ_p.A_p;
+    MatrixXd &Ap_e = equ_p.A_e;
+    MatrixXd &Ap_w = equ_p.A_w;
+    MatrixXd &Ap_n = equ_p.A_n;
+    MatrixXd &Ap_s = equ_p.A_s;
+    VectorXd &source_p = equ_p.source;
+    double alpha_uv=0.1;
+    // 遍历网格点
+    for(int i = 0; i <= equ_p.n_y+1; i++) {
+        for(int j = 0; j <= equ_p.n_x+1; j++) {
+            if(bctype(i,j) == 0) {  // 内部点
+                int n = mesh.interid(i,j) - 1;
+                double Ap_temp = 0;
+                double source_temp = 0;
+                // 检查东面
+                if(bctype(i,j+1) == 0) {
+                    Ap_e(i,j) = 0.5*alpha_uv*(1/A_p(i,j) +1/A_p(i,j+1))*(dy*dy);
+                    Ap_temp += Ap_e(i,j);
+                }  
+                else if (bctype(i,j+1) == -3)
+                {
+                    Ap_e(i,j) = 0.5*alpha_uv*(1/A_p(i,j) +1/A_p(i,j+1))*(dy*dy);
+                    Ap_temp += Ap_e(i,j);
+                }
+                
+              
+                else{
+                    Ap_e(i,j) = 0;
+                }
+
+                // 检查西面
+                if(bctype(i,j-1) == 0) {
+                    Ap_w(i,j) = 0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i,j-1))*(dy*dy);
+                    Ap_temp += Ap_w(i,j);
+                }
+                else if (bctype(i,j-1) == -3)
+                {
+                    Ap_w(i,j) = 0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i,j-1))*(dy*dy);
+                    Ap_temp += Ap_w(i,j);
+                }
+                
+                 else {
+                    Ap_w(i,j) = 0;
+                }
+
+                // 检查北面
+                if(bctype(i-1,j) == 0) {
+                    Ap_n(i,j) = 0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i-1,j))*(dx*dx);
+                    Ap_temp += Ap_n(i,j);
+                }
+               
+                 else {
+                    Ap_n(i,j) = 0;
+                }
+
+                // 检查南面
+                if(bctype(i+1,j) == 0) {
+                    Ap_s(i,j) = 0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i+1,j))*(dx*dx);
+                    Ap_temp += Ap_s(i,j);
+                } 
+                
+                else {
+                    Ap_s(i,j) = 0;
+                }
+
+                // 设置中心系数和源项
+                Ap_p(i,j) = Ap_temp;
+                
+                source_temp += -(u_face(i,j) - u_face(i,j-1))*dy 
+                             - (v_face(i-1,j) - v_face(i,j))*dx;
+                source_p[n]=   source_temp ;          
+            }
+        }
+    }
+}
+
+
 void correct_pressure(Mesh &mesh, Equation &equ_u)
 {
     MatrixXd &p = mesh.p;
@@ -602,6 +820,31 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
     p_star = p + alpha_p * p_prime;
 }
 
+void correct_pressure_S(Mesh &mesh, Equation &equ_u)
+{
+    MatrixXd &p = mesh.p;
+    MatrixXd &p_star = mesh.p_star;
+    MatrixXd &p_prime = mesh.p_prime;
+    MatrixXd &bctype = mesh.bctype;
+    int n_x = mesh.nx;
+    int n_y = mesh.ny;
+
+ 
+    for(int i = 0; i <= n_y + 1; i++) {
+        for(int j = 0; j <= n_x + 1; j++) {
+            if(bctype(i,j) > 0) {  // 边界点
+                
+                    p_prime(i,j) = 0;
+                }
+            }
+        }
+    
+
+    // 更新压力场
+
+    double alpha_p = 0.01;  // 压力松弛因子
+    p_star = p + alpha_p * p_prime;
+}
 
 void correct_velocity(Mesh &mesh, Equation &equ_u)
 {
@@ -733,6 +976,136 @@ else if(bctype(i+1,j) > -10) {
     }
 }
 
+
+void correct_velocity_S(Mesh &mesh, Equation &equ_u)
+{
+    MatrixXd &u = mesh.u;
+    MatrixXd &v = mesh.v;
+    MatrixXd &u_face = mesh.u_face;
+    MatrixXd &v_face = mesh.v_face;
+    MatrixXd &p_prime = mesh.p_prime;
+    MatrixXd &u_star = mesh.u_star;
+    MatrixXd &v_star = mesh.v_star;
+    MatrixXd &bctype = mesh.bctype;
+    MatrixXd &A_p = equ_u.A_p;
+    int n_x = mesh.nx;
+    int n_y = mesh.ny;
+    double alpha_uv=0.1;
+
+    // 修正 u 速度
+    for(int i = 0; i <= n_y+1; i++) {
+        for(int j = 0; j <= n_x+1; j++) {
+            if(bctype(i,j) == 0) {  // 当前点是内部面
+                double p_west, p_east;
+
+// 检查西面
+if(bctype(i,j-1) == 0||bctype(i,j-1) == -3) {
+    p_west = p_prime(i,j-1);  // 内部点，使用邻居的压力
+} else if(bctype(i,j-1) > 0) {
+    p_west = p_prime(i,j);    // 固定边界，使用当前点的压力
+} else if(bctype(i,j-1) ==-2) {
+    p_west = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}else if(bctype(i,j-1) ==-1) {
+    p_west = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+
+// 检查东面
+if(bctype(i,j+1) == 0||bctype(i,j+1) == -3) {
+    p_east = p_prime(i,j+1);  // 内部点，使用邻居的压力
+} else if(bctype(i,j+1) > 0) {
+    p_east = p_prime(i,j);    // 固定边界，使用当前点的压力
+}
+else if(bctype(i,j+1) ==-2) {
+    p_east = p_prime(i,j);    // 固定边界，使用当前点的压力
+} 
+ else if(bctype(i,j+1) ==-1) {
+    p_east =p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+                
+                u_star(i,j) = u(i,j) + 0.5*alpha_uv*(p_west - p_east)*dy/A_p(i,j);
+            }
+        }
+    }
+
+    // 修正 v 速度
+    for(int i = 0; i <= n_y+1; i++) {
+        for(int j = 0; j <= n_x+1; j++) {
+            if(bctype(i,j) == 0) {  // 当前点是内部面
+                double p_north, p_south;
+
+// 检查北面
+if(bctype(i-1,j) == 0||bctype(i-1,j) == -3) {
+    p_north = p_prime(i-1,j);  // 内部点，使用邻居的压力
+} else if(bctype(i-1,j) > 0) {
+    p_north = p_prime(i,j);    // 固定边界，使用当前点的压力
+} else if(bctype(i-1,j) ==-2) {
+    p_north =p_prime(i,j) ;             // 压力边界或滑移边界，压力设为0
+ }else if(bctype(i-1,j) ==-1) {
+    p_north = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+ }else if(bctype(i-1,j) > -10) {
+    p_north = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+
+// 检查南面
+if(bctype(i+1,j) == 0||bctype(i+1,j) == -3) {
+    p_south = p_prime(i+1,j);  // 内部点，使用邻居的压力
+} else if(bctype(i+1,j) > 0) {
+    p_south = p_prime(i,j);    // 固定边界，使用当前点的压力
+} else if(bctype(i+1,j) ==-2) {
+    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+else if(bctype(i+1,j) ==-1) {
+    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+else if(bctype(i+1,j) > -10) {
+    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
+}
+                
+                v_star(i,j) = v(i,j) + 0.5*alpha_uv*(p_south - p_north)*dx/A_p(i,j);
+            }
+        }
+    }
+
+    // 修正 u_face
+    for(int i = 0; i <= n_y+1; i++) {
+        for(int j = 0; j <= n_x; j++) {
+            if((bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
+(bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
+(bctype(i,j) == -3 && bctype(i,j+1) == 0)) {  // 检查两侧是否都是内部面
+                u_face(i,j) = u_face(i,j) + 
+                    0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i,j+1))*(p_prime(i,j) - p_prime(i,j+1))*dy;
+             if( (bctype(i,j) == 0 && bctype(i,j+1) == -1 ) ){
+                  u_face(i,j)=u_star(i,j);
+                  
+                }
+              if( (bctype(i,j) == -1 && bctype(i,j+1) == 0 ) ){
+                  u_face(i,j)=u_star(i,j+1);
+                  
+
+                }
+            }
+        }
+    }
+
+    // 修正 v_face
+    for(int i = 0; i <= n_y; i++) {
+        for(int j = 0; j <= n_x+1; j++) {
+            if((bctype(i,j) == 0 ) && ( bctype(i+1,j) == 0)) {  // 检查上下是否都是内部面
+                v_face(i,j) = v_face(i,j) + 
+                    0.5*alpha_uv*(1/A_p(i,j) + 1/A_p(i+1,j))*(p_prime(i+1,j) - p_prime(i,j))*dx;
+            }
+            if( (bctype(i,j) == 0 && bctype(i+1,j) == -1 ) ){
+                  v_face(i,j)=v_star(i,j);
+                  
+                }
+              if( (bctype(i,j) == -1 && bctype(i+1,j) == 0 ) ){
+                  v_face(i,j)=v_star(i+1,j);
+                 
+
+                }
+        }
+    }
+}
 void post_processing(Mesh &mseh)
 {   
    
@@ -796,7 +1169,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time) {
 }
 
 
-void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
+void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu)
 {   
     //-1 压力出口(给定压强)
     //-2 固定速度
@@ -806,13 +1179,12 @@ void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-
-    double rho =1;
-    D_e=dy/(dx*10000);
-    D_w=dy/(dx*10000);
-    D_n=dx/(dy*10000);
-    D_s=dx/(dy*10000);
+    double alpha_uv=0.1;
     
+    D_e=dy*mu/(dx);
+    D_w=dy*mu/(dx);
+    D_n=dx*mu/(dy);
+    D_s=dx*mu/(dy);
     // 引用网格变量
     MatrixXd &zoneid = mesh.zoneid;
     MatrixXd &bctype = mesh.bctype;
@@ -1042,7 +1414,7 @@ void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
 
 void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
 {   
-    //-1 压力出口(给定压强)
+     //-1 压力出口(给定压强)
     //-2 固定速度
     //-3 并行交界面
 
@@ -1050,13 +1422,12 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-    double alpha=1;
+    double alpha_uv=0.1;
     
     D_e=dy*mu/(dx);
     D_w=dy*mu/(dx);
     D_n=dx*mu/(dy);
     D_s=dx*mu/(dy);
-    
     // 引用网格变量
     MatrixXd &zoneid = mesh.zoneid;
     MatrixXd &bctype = mesh.bctype;
@@ -1099,26 +1470,26 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
             if((bctype(i,j-1) == 0 ||  bctype(i,j-1) == -3) && 
                (bctype(i,j+1) == 0 ||  bctype(i,j+1) == -3)) {
                 // 两侧都是内部点或滑移边界，使用中心差分
-                source_x_temp = 0.5*(p(i,j-1)-p(i,j+1))*dy;
+                source_x_temp = 0.5*alpha_uv*(p(i,j-1)-p(i,j+1))*dy;
                 
             } else if(bctype(i,j-1) == -1) {
                 // 左边是压力为0的边界
-                source_x_temp = 0.5*(-p(i,j+1))*dy;
+                source_x_temp = 0.5*alpha_uv*(-p(i,j+1))*dy;
             } else if(bctype(i,j+1) == -1) {
                 // 右边是压力为0的边界
-                source_x_temp = 0.5*(p(i,j-1))*dy;
+                source_x_temp = 0.5*alpha_uv*(p(i,j-1))*dy;
             } else if(bctype(i,j-1) == -2) {
                 // 左边是速度入口
-                source_x_temp = 0.5*(p(i,j)-p(i,j+1))*dy;
+                source_x_temp = 0.5*alpha_uv*(p(i,j)-p(i,j+1))*dy;
             } else if(bctype(i,j+1) == -2) {
                 // 右边是速度入口
-                source_x_temp = 0.5*(p(i,j-1)-p(i,j))*dy;
+                source_x_temp = 0.5*alpha_uv*(p(i,j-1)-p(i,j))*dy;
             } else if(bctype(i,j-1) != 0 && bctype(i,j+1) == 0) {
                 // 左边是其他边界，右边是内部点
-                source_x_temp = 0.5*(p(i,j)-p(i,j+1))*dy;
+                source_x_temp = 0.5*alpha_uv*(p(i,j)-p(i,j+1))*dy;
             } else if(bctype(i,j-1) == 0 && bctype(i,j+1) != 0) {
                 // 左边是内部点，右边是其他边界
-                source_x_temp = 0.5*(p(i,j-1)-p(i,j))*dy;
+                source_x_temp = 0.5*alpha_uv*(p(i,j-1)-p(i,j))*dy;
             } else {
                 // 两边都是固定边界或其他情况
                 source_x_temp = 0.0; 
@@ -1128,28 +1499,28 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
             if((bctype(i-1,j) == 0 ||  bctype(i-1,j) == -3) && 
                (bctype(i+1,j) == 0 ||  bctype(i+1,j) == -3)) {
                 // 上下都是内部点或滑移边界，使用中心差分
-                source_y_temp = 0.5*(p(i+1,j)-p(i-1,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(p(i+1,j)-p(i-1,j))*dx;
                 
             } else if(bctype(i-1,j) == -1) {
                 // 上边是压力为0的边界
-                source_y_temp = 0.5*(p(i+1,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(p(i+1,j))*dx;
                 
             } else if(bctype(i+1,j) == -1) {
                 // 下边是压力为0的边界  压力出口
-                source_y_temp = 0.5*(-p(i-1,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(-p(i-1,j))*dx;
             } else if(bctype(i-1,j) == -2) {
                 // 上边是压力为0的边界
-                source_y_temp = 0.5*(p(i+1,j)-p(i,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(p(i+1,j)-p(i,j))*dx;
                 
             } else if(bctype(i+1,j) == -2) {
                 // 下边是压力为0的边界
-                source_y_temp = 0.5*(p(i,j)-p(i-1,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(p(i,j)-p(i-1,j))*dx;
             } else if(bctype(i-1,j) != 0 && bctype(i+1,j) == 0) {
                 // 上边是其他边界，下边是内部点
-                source_y_temp = 0.5*(p(i+1,j)-p(i,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(p(i+1,j)-p(i,j))*dx;
             } else if(bctype(i-1,j) == 0 && bctype(i+1,j) != 0) {
                 // 上边是内部点，下边是其他边界
-                source_y_temp = 0.5*(p(i,j)-p(i-1,j))*dx;
+                source_y_temp = 0.5*alpha_uv*(p(i,j)-p(i-1,j))*dx;
             } else {
                 // 上下都是固定边界或其他情况
                 source_y_temp = 0.0;
@@ -1169,20 +1540,20 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
                 else if(bctype(i,j+1) > 0) {  // wall边界
                     A_e(i,j) = 0;
                     Ap_temp += 2*D_e + max(0.0,F_e);
-                    source_x_temp += zoneu[zoneid(i,j+1)]*(2*D_e + max(0.0,-F_e));
-                    source_y_temp += zonev[zoneid(i,j+1)]*(2*D_e + max(0.0,-F_e));
+                    source_x_temp += alpha_uv*zoneu[zoneid(i,j+1)]*(2*D_e + max(0.0,-F_e));
+                    source_y_temp += alpha_uv*zonev[zoneid(i,j+1)]*(2*D_e + max(0.0,-F_e));
                 } 
                 else if(bctype(i,j+1) ==-1 ) {  // 其他边界
                     A_e(i,j) = 0;
                     Ap_temp += D_e + max(0.0,F_e);
-                    source_x_temp += u_star(i,j)*(D_e + max(0.0,-F_e));  // 移除系数2
-                    source_y_temp += v_star(i,j)*(D_e + max(0.0,-F_e));  // 移除系数2
+                    source_x_temp += alpha_uv*u_star(i,j)*(D_e + max(0.0,-F_e));  // 移除系数2
+                    source_y_temp += alpha_uv*v_star(i,j)*(D_e + max(0.0,-F_e));  // 移除系数2
                 }
                 else if(bctype(i,j+1) > -10) {  // 其他边界
                     A_e(i,j) = 0;
                     Ap_temp += D_e + max(0.0,F_e);  // 移除系数2
-                    source_x_temp += zoneu[zoneid(i,j+1)]*(D_e + max(0.0,-F_e));  // 移除系数2
-                    source_y_temp += zonev[zoneid(i,j+1)]*(D_e + max(0.0,-F_e));  // 移除系数2
+                    source_x_temp += alpha_uv*zoneu[zoneid(i,j+1)]*(D_e + max(0.0,-F_e));  // 移除系数2
+                    source_y_temp += alpha_uv*zonev[zoneid(i,j+1)]*(D_e + max(0.0,-F_e));  // 移除系数2
                 }
                  
                 // 检查西面
@@ -1197,19 +1568,19 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
                 else if(bctype(i,j-1) ==-1) {  // 其他边界
                     A_w(i,j) = 0;
                     Ap_temp += D_w + max(0.0,-F_w);
-                    source_x_temp += u_star(i,j)*(D_w + max(0.0,F_w));  // 移除系数2
-                    source_y_temp += v_star(i,j)*(D_w + max(0.0,F_w));  // 移除系数2
+                    source_x_temp += alpha_uv*u_star(i,j)*(D_w + max(0.0,F_w));  // 移除系数2
+                    source_y_temp += alpha_uv*v_star(i,j)*(D_w + max(0.0,F_w));  // 移除系数2
                 }
                 else if(bctype(i,j-1) > 0) {  //wall边界
                     A_w(i,j) = 0;
                     Ap_temp += 2*D_w + max(0.0,-F_w);
-                    source_x_temp += zoneu[zoneid(i,j-1)]*(2*D_w + max(0.0,F_w));
-                    source_y_temp += zonev[zoneid(i,j-1)]*(2*D_w + max(0.0,F_w));
+                    source_x_temp += alpha_uv*zoneu[zoneid(i,j-1)]*(2*D_w + max(0.0,F_w));
+                    source_y_temp += alpha_uv*zonev[zoneid(i,j-1)]*(2*D_w + max(0.0,F_w));
                 } else if(bctype(i,j-1) > -10) {  //其他
                     A_w(i,j) = 0;
                     Ap_temp += D_w + max(0.0,-F_w);  // 移除系数2
-                    source_x_temp += zoneu[zoneid(i,j-1)]*(D_w + max(0.0,F_w));  // 移除系数2
-                    source_y_temp += zonev[zoneid(i,j-1)]*(D_w + max(0.0,F_w));  // 移除系数2
+                    source_x_temp += alpha_uv*zoneu[zoneid(i,j-1)]*(D_w + max(0.0,F_w));  // 移除系数2
+                    source_y_temp += alpha_uv*zonev[zoneid(i,j-1)]*(D_w + max(0.0,F_w));  // 移除系数2
                 }
                 
                 // 检查北面
@@ -1220,20 +1591,20 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
                 else if(bctype(i-1,j) == -1) {  // 压力出口
                     A_n(i,j) = 0;
                     Ap_temp += D_n + max(0.0,F_n);
-                    source_x_temp += u_star(i-1,j)*(D_n + max(0.0,-F_n));
-                    source_y_temp += v_star(i-1,j)*(D_n + max(0.0,-F_n));
+                    source_x_temp += alpha_uv*u_star(i-1,j)*(D_n + max(0.0,-F_n));
+                    source_y_temp += alpha_uv*v_star(i-1,j)*(D_n + max(0.0,-F_n));
                 } 
                
                 else if(bctype(i-1,j) > 0) {  // wall边界
                     A_n(i,j) = 0;
                     Ap_temp += 2*D_n + max(0.0,F_n);
-                    source_x_temp += zoneu[zoneid(i-1,j)]*(2*D_n + max(0.0,-F_n));
-                    source_y_temp += zonev[zoneid(i-1,j)]*(2*D_n + max(0.0,-F_n));
+                    source_x_temp += alpha_uv*zoneu[zoneid(i-1,j)]*(2*D_n + max(0.0,-F_n));
+                    source_y_temp += alpha_uv*zonev[zoneid(i-1,j)]*(2*D_n + max(0.0,-F_n));
                 } else if(bctype(i-1,j) > -10) {  // 其他边界
                     A_n(i,j) = 0;
                     Ap_temp += D_n + max(0.0,F_n);  // 移除系数2
-                    source_x_temp += zoneu[zoneid(i-1,j)]*(D_n + max(0.0,-F_n));  // 移除系数2
-                    source_y_temp += zonev[zoneid(i-1,j)]*(D_n + max(0.0,-F_n));  // 移除系数2
+                    source_x_temp += alpha_uv*zoneu[zoneid(i-1,j)]*(D_n + max(0.0,-F_n));  // 移除系数2
+                    source_y_temp += alpha_uv*zonev[zoneid(i-1,j)]*(D_n + max(0.0,-F_n));  // 移除系数2
                 }
                 
                 // 检查南面
@@ -1244,25 +1615,25 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
                 else if(bctype(i+1,j) == -1) {  // 压力出口
                     A_s(i,j) =0;
                     Ap_temp += D_s + max(0.0,-F_s);  
-                    source_x_temp += u(i+1,j)*(D_s + max(0.0,F_s));  
-                    source_y_temp += v(i+1,j)*(D_s + max(0.0,F_s));  
+                    source_x_temp += alpha_uv*u(i+1,j)*(D_s + max(0.0,F_s));  
+                    source_y_temp += alpha_uv*v(i+1,j)*(D_s + max(0.0,F_s));  
                 }
                  else if(bctype(i+1,j) > 0) {  // wall边界
                     A_s(i,j) = 0;
                     Ap_temp += 2*D_s + max(0.0,-F_s);
-                    source_x_temp += zoneu[zoneid(i+1,j)]*(2*D_s + max(0.0,F_s));
-                    source_y_temp += zonev[zoneid(i+1,j)]*(2*D_s + max(0.0,F_s));
+                    source_x_temp += alpha_uv*zoneu[zoneid(i+1,j)]*(2*D_s + max(0.0,F_s));
+                    source_y_temp += alpha_uv*zonev[zoneid(i+1,j)]*(2*D_s + max(0.0,F_s));
                 } else if(bctype(i+1,j) > -10) {  // 其他边界
                     A_s(i,j) = 0;
                     Ap_temp += D_s + max(0.0,-F_s);  // 移除系数2
-                    source_x_temp += zoneu[zoneid(i+1,j)]*(D_s + max(0.0,F_s));  // 移除系数2
-                    source_y_temp += zonev[zoneid(i+1,j)]*(D_s + max(0.0,F_s));  // 移除系数2
+                    source_x_temp += alpha_uv*zoneu[zoneid(i+1,j)]*(D_s + max(0.0,F_s));  // 移除系数2
+                    source_y_temp += alpha_uv*zonev[zoneid(i+1,j)]*(D_s + max(0.0,F_s));  // 移除系数2
                 }
                 
-                A_p(i,j) = (Ap_temp+dx*dy/dt)/alpha;
+                A_p(i,j) = Ap_temp+dx*dy/dt;
                 
-                source_x_temp += (dx*dy*mesh.u0(i,j)/dt)+(1-alpha/alpha)* (Ap_temp+dx*dy/dt)*mesh.u_star(i,j);
-                source_y_temp += (dx*dy*mesh.v0(i,j)/dt)+(1-alpha/alpha)* (Ap_temp+dx*dy/dt)*mesh.v_star(i,j);
+                source_x_temp += (1-alpha_uv)*A_p(i,j)*u_star(i,j)+alpha_uv* dx*dy*mesh.u0(i,j)/dt;
+                source_y_temp += (1-alpha_uv)*A_p(i,j)*v_star(i,j)+alpha_uv* dx*dy*mesh.v0(i,j)/dt;
                 // 设置源项
                 source_x[n] = source_x_temp;
                 source_y[n] = source_y_temp;
@@ -1270,10 +1641,10 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
         }
     }
 
-    A_e = A_e;
-    A_w = A_w;
-    A_n = A_n;
-    A_s = A_s;
+    A_e = alpha_uv*A_e;
+    A_w = alpha_uv*A_w;
+    A_n = alpha_uv*A_n;
+    A_s = alpha_uv*A_s;
     
     // 将系数复制到v方程
     equ_v.A_p = equ_u.A_p;
@@ -1281,6 +1652,7 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
     equ_v.A_e = equ_u.A_e;
     equ_v.A_n = equ_u.A_n;
     equ_v.A_s = equ_u.A_s;
+    
 }
 
 void momentum_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
@@ -1544,7 +1916,7 @@ vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n) {
     for(int k = 0; k < n; k++) {
         // 创建子网格
         Mesh sub_mesh(original_ny, widths[k]);
-
+         sub_mesh.initializeToZero();
         // 复制属性
         sub_mesh.zoneu = original_mesh.zoneu;
         sub_mesh.zonev = original_mesh.zonev;
@@ -1603,7 +1975,7 @@ vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n) {
         if(left_is_interface || right_is_interface) {
             int extra_cols = (left_is_interface ? 1 : 0) + (right_is_interface ? 1 : 0);
             Mesh sub_mesh2(original_ny, widths[k] + extra_cols);
-            
+            sub_mesh2.initializeToZero();
             // 复制基本属性
             sub_mesh2.zoneu = sub_mesh.zoneu;
             sub_mesh2.zonev = sub_mesh.zonev;

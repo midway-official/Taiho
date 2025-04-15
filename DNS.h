@@ -18,7 +18,7 @@ extern double dx, dy, vx;
 extern double velocity;
 extern double l2_norm_x, l2_norm_y, l2_norm_p;
 extern double a, b;
-extern double alpha_uv;
+
 // 在其他函数声明后添加
 void printMatrix(const MatrixXd& matrix, const string& name, int precision = 4);
 // Mesh 类声明
@@ -69,15 +69,16 @@ public:
 
 void solve(Equation& equation, double epsilon, double& l2_norm, MatrixXd& phi);
 void face_velocity(Mesh &mesh,Equation &equ_u);
-
+void face_velocity_S(Mesh &mesh,Equation &equ_u);
 
 void pressure_function(Mesh &mesh,Equation &equ_p,Equation &equ_u);
-
+void pressure_function_S(Mesh &mesh,Equation &equ_p,Equation &equ_u);
 //修正压力
 void correct_pressure(Mesh &mesh,Equation &equ_u);
+void correct_pressure_S(Mesh &mesh,Equation &equ_u);
 
 void correct_velocity(Mesh &mesh,Equation &equ_u);
-
+void correct_velocity_S(Mesh &mesh,Equation &equ_u);
 void post_processing(Mesh &mseh);
 
 void show_progress_bar(int current_step, int total_steps, double elapsed_time);
