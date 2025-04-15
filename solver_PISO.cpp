@@ -49,7 +49,6 @@ double estimateConditionNumber(const Eigen::SparseMatrix<double>& A) {
     return cond;
 }
 
-
 void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder = "") {
     // 创建文件名
     std::string u_filename = "u_" + std::to_string(rank) + ".dat";
@@ -72,7 +71,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!u_file) {
             throw std::runtime_error("无法创建文件: " + u_filename);
         }
-        u_file << mesh.u;
+        u_file << mesh.u_star;
         u_file.close();
 
         // 保存v场
@@ -80,7 +79,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!v_file) {
             throw std::runtime_error("无法创建文件: " + v_filename);
         }
-        v_file << mesh.v;
+        v_file << mesh.v_star;
         v_file.close();
 
         // 保存p场
@@ -88,7 +87,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!p_file) {
             throw std::runtime_error("无法创建文件: " + p_filename);
         }
-        p_file << mesh.p;
+        p_file << mesh.p_star;
         p_file.close();
 
         //std::cout << "进程 " << rank << " 的数据已保存到文件" << std::endl;
@@ -277,10 +276,10 @@ MPI_Barrier(MPI_COMM_WORLD);
        VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
        x_v.setZero();
        y_v.setZero();
-      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,15,rank,num_procs,l2_norm_x);
+      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,25,rank,num_procs,l2_norm_x);
        MPI_Barrier(MPI_COMM_WORLD);
        
-       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,15,rank,num_procs,l2_norm_y);
+       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,25,rank,num_procs,l2_norm_y);
        MPI_Barrier(MPI_COMM_WORLD);
        vectorToMatrix(x_v,mesh.u,mesh);
        MPI_Barrier(MPI_COMM_WORLD);
@@ -319,13 +318,13 @@ MPI_Barrier(MPI_COMM_WORLD);
         //求解
         VectorXd p_v(mesh.internumber);
 
-        
+
         mesh.p_prime.setZero();
 
 
         p_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,50,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,140,rank,num_procs,l2_norm_p);
         MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
@@ -355,9 +354,7 @@ MPI_Barrier(MPI_COMM_WORLD);
 
         exchangeColumns(mesh.v, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
-        exchangeColumns(mesh.p, rank, num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
-     
+        
         
         double init_l2_norm_p = -1.0;
         MPI_Barrier(MPI_COMM_WORLD);
