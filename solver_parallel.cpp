@@ -132,13 +132,19 @@ double mu;
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
+    //初始化
     mesh.u0.setZero();
     mesh.v0.setZero();
-    //mesh.u.setZero();
-    //mesh.v.setZero();
+    mesh.u_star.setZero();
+    mesh.v_star.setZero();
+    mesh.u_face.setZero();
+    mesh.v_face.setZero(); 
+    mesh.u.setZero();
+    mesh.v.setZero();
     mesh.p.setZero();
     mesh.p_prime.setZero();
     mesh.p_star.setZero();
+
 
 
    
@@ -160,7 +166,7 @@ double mu;
       
        //记录上一个时间步长的u v
       
-       int max_outer_iterations=300;
+       int max_outer_iterations=150;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -168,13 +174,13 @@ double mu;
        double init_l2_norm_y = -1.0;
        double init_l2_norm_p = -1.0;
     for(int n=1;n<=max_outer_iterations;n++) {
-         MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);
         //1离散动量方程 
         double l2_norm_x, l2_norm_y;
         
         equ_v.initializeToZero();
         equ_u.initializeToZero();
-        momentum_function_PISO(mesh,equ_u,equ_v,mu,dt);
+        momentum_function_unsteady(mesh,equ_u,equ_v,mu,dt);
         
         equ_u.build_matrix();
         equ_v.build_matrix();
@@ -189,10 +195,11 @@ double mu;
         x_v.setZero();
         y_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,30,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,20,rank,num_procs,l2_norm_x);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,30,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,20,rank,num_procs,l2_norm_y);
+        MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -207,34 +214,37 @@ double mu;
 
        
         exchangeColumns(mesh.u, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.v, rank, num_procs);
-        
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(equ_u.A_p, rank, num_procs);
          MPI_Barrier(MPI_COMM_WORLD);
        
         //4速度插值到面
-        face_velocity(mesh ,equ_u);
+        face_velocity_S(mesh ,equ_u);
        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.u_face, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.v_face, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
         
         double epsilon_p=1e-5;
         equ_p.initializeToZero();
-        pressure_function(mesh, equ_p, equ_u);
+        pressure_function_S(mesh, equ_p, equ_u);
         
         // 重新更新源项并重建矩阵
         equ_p.build_matrix();
         //求解
+
         
-       
+        
+        
+        mesh.p_prime.setZero();
+
+
+
         VectorXd p_v(mesh.internumber);
-
-
         p_v.setZero();
-    
-
-
         MPI_Barrier(MPI_COMM_WORLD);
         CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,50,rank,num_procs,l2_norm_p);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -244,10 +254,10 @@ double mu;
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         MPI_Barrier(MPI_COMM_WORLD);
         //8压力修正
-        correct_pressure(mesh,equ_u);
+        correct_pressure_S(mesh,equ_u);
         MPI_Barrier(MPI_COMM_WORLD);
         //9速度修正
-        correct_velocity(mesh,equ_u);
+        correct_velocity_S(mesh,equ_u);
         MPI_Barrier(MPI_COMM_WORLD);
         
         

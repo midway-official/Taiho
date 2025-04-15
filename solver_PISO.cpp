@@ -212,13 +212,19 @@ MPI_Barrier(MPI_COMM_WORLD);
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
-    //初始化
-    mesh.u0.setZero();
-    mesh.v0.setZero();
+        //初始化
+        mesh.u0.setZero();
+        mesh.v0.setZero();
+        mesh.u_star.setZero();
+        mesh.v_star.setZero();
+        mesh.u_face.setZero();
+        mesh.v_face.setZero(); 
+        mesh.u.setZero();
+        mesh.v.setZero();
+        mesh.p.setZero();
+        mesh.p_prime.setZero();
+        mesh.p_star.setZero();
     
-    mesh.p.setZero();
-    mesh.p_prime.setZero();
-    mesh.p_star.setZero();
     // ... 后续的计算过程 ...
 
 
@@ -258,6 +264,7 @@ MPI_Barrier(MPI_COMM_WORLD);
        equ_v.initializeToZero();
        equ_u.initializeToZero();
        momentum_function_PISO(mesh,equ_u,equ_v,mu,dt);
+       MPI_Barrier(MPI_COMM_WORLD);
        equ_u.build_matrix();
        equ_v.build_matrix();
 
@@ -274,7 +281,9 @@ MPI_Barrier(MPI_COMM_WORLD);
        MPI_Barrier(MPI_COMM_WORLD);
        
        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,15,rank,num_procs,l2_norm_y);
+       MPI_Barrier(MPI_COMM_WORLD);
        vectorToMatrix(x_v,mesh.u,mesh);
+       MPI_Barrier(MPI_COMM_WORLD);
        vectorToMatrix(y_v,mesh.v,mesh);
        MPI_Barrier(MPI_COMM_WORLD);
       
@@ -286,9 +295,11 @@ MPI_Barrier(MPI_COMM_WORLD);
        
         MPI_Barrier(MPI_COMM_WORLD);
 
-      
+        MPI_Barrier(MPI_COMM_WORLD);
        exchangeColumns(mesh.u, rank, num_procs);
+       MPI_Barrier(MPI_COMM_WORLD);
        exchangeColumns(mesh.v, rank, num_procs);
+       MPI_Barrier(MPI_COMM_WORLD);
        exchangeColumns(equ_u.A_p, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
     for(int n=1;n<=max_outer_iterations;n++) {
@@ -307,9 +318,15 @@ MPI_Barrier(MPI_COMM_WORLD);
         equ_p.build_matrix();
         //求解
         VectorXd p_v(mesh.internumber);
-        p_v.setZero();
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,50,rank,num_procs,l2_norm_p);
+
         
+        mesh.p_prime.setZero();
+
+
+        p_v.setZero();
+        MPI_Barrier(MPI_COMM_WORLD);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,50,rank,num_procs,l2_norm_p);
+        MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
         
@@ -334,9 +351,12 @@ MPI_Barrier(MPI_COMM_WORLD);
   
         
         exchangeColumns(mesh.u, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
+
         exchangeColumns(mesh.v, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.p, rank, num_procs);
-        
+        MPI_Barrier(MPI_COMM_WORLD);
      
         
         double init_l2_norm_p = -1.0;
@@ -396,8 +416,13 @@ if(global_converged) {
    
     // 最后显示实际计算总耗时
     auto total_elapsed_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time0).count();
-    std::cout << "\n计算完成 总耗时: " << total_elapsed_time << "秒" << std::endl;
+    if (rank==0)
+    {
+        std::cout << "\n计算完成 总耗时: " << total_elapsed_time << "秒" << std::endl;
   
+    }
+    
+    
     saveMeshData(mesh,rank);
     MPI_Finalize();
     

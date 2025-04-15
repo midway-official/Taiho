@@ -8,7 +8,7 @@ double dx, dy, vx;
 double velocity;
 double l2_norm_x = 0.0, l2_norm_y = 0.0, l2_norm_p = 0.0;
 double a, b;
- 
+double alpha_uv =0.5; 
 void printMatrix(const MatrixXd& matrix, const string& name, int precision ) {
     // 设置输出格式
     IOFormat fmt(precision, 0, ", ", "\n", "[", "]");
@@ -598,7 +598,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
 
     // 更新压力场
 
-    double alpha_p = 0.05;  // 压力松弛因子
+    double alpha_p = 0.3;  // 压力松弛因子
     p_star = p + alpha_p * p_prime;
 }
 
@@ -796,7 +796,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time) {
 }
 
 
-void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu)
+void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re2)
 {   
     //-1 压力出口(给定压强)
     //-2 固定速度
@@ -806,12 +806,12 @@ void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu)
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-    double alpha_uv =0.5;
+
     double rho =1;
-    D_e=dy*mu/(dx);
-    D_w=dy*mu/(dx);
-    D_n=dx*mu/(dy);
-    D_s=dx*mu/(dy);
+    D_e=dy/(dx*10000);
+    D_w=dy/(dx*10000);
+    D_n=dx/(dy*10000);
+    D_s=dx/(dy*10000);
     
     // 引用网格变量
     MatrixXd &zoneid = mesh.zoneid;
@@ -1050,7 +1050,7 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-    double alpha=0.1;
+    double alpha=1;
     
     D_e=dy*mu/(dx);
     D_w=dy*mu/(dx);

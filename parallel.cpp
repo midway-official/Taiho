@@ -198,16 +198,17 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int cols = matrix.cols();
 
     // 确定左右邻居
-    int left_rank = (rank == 0) ? MPI_PROC_NULL : rank - 1;
+    int left_rank  = (rank == 0) ? MPI_PROC_NULL : rank - 1;
     int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
 
     // 聚合通信：打包4列 {2,3,cols-4,cols-3}
     const int num_cols_per_side = 2;
-    const int num_total_cols = num_cols_per_side * 2;
-    vector<double> sendbuf_left(rows * num_cols_per_side);
-    vector<double> sendbuf_right(rows * num_cols_per_side);
-    vector<double> recvbuf_left(rows * num_cols_per_side);
-    vector<double> recvbuf_right(rows * num_cols_per_side);
+
+    // 分配并清零缓冲区
+    vector<double> sendbuf_left(rows * num_cols_per_side, 0.0);
+    vector<double> sendbuf_right(rows * num_cols_per_side, 0.0);
+    vector<double> recvbuf_left(rows * num_cols_per_side, 0.0);
+    vector<double> recvbuf_right(rows * num_cols_per_side, 0.0);
 
     // 填充发送缓冲区
     for (int i = 0; i < rows; i++) {
@@ -218,41 +219,32 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         sendbuf_right[i * num_cols_per_side + 1] = matrix(i, cols - 3);
     }
 
+    MPI_Barrier(MPI_COMM_WORLD); // 同步
+
     // 建立 persistent communicator topology（cartesian 拓扑）
     MPI_Comm cart_comm;
     int dims[1] = { num_procs };
     int periods[1] = { 0 };
     MPI_Cart_create(MPI_COMM_WORLD, 1, dims, periods, 0, &cart_comm);
 
-    // 定义 sendcounts / recvcounts / displacements / types
-    int sendcounts[2] = { rows * num_cols_per_side, rows * num_cols_per_side };
-    int recvcounts[2] = { rows * num_cols_per_side, rows * num_cols_per_side };
-    MPI_Aint sdispls[2], rdispls[2];
-    MPI_Datatype types[2] = { MPI_DOUBLE, MPI_DOUBLE };
-
-    sdispls[0] = 0;
-    sdispls[1] = (MPI_Aint)(sendbuf_right.data() - sendbuf_left.data()) * sizeof(double);
-
-    rdispls[0] = 0;
-    rdispls[1] = (MPI_Aint)(recvbuf_right.data() - recvbuf_left.data()) * sizeof(double);
-
-    // Persistent request（2邻居、双缓冲）
+    // 定义 persistent request
     MPI_Request requests[4];
+    MPI_Send_init(sendbuf_left.data(),  rows * num_cols_per_side, MPI_DOUBLE, left_rank,  0, MPI_COMM_WORLD, &requests[0]);
+    MPI_Recv_init(recvbuf_left.data(),  rows * num_cols_per_side, MPI_DOUBLE, left_rank,  1, MPI_COMM_WORLD, &requests[1]);
+    MPI_Send_init(sendbuf_right.data(), rows * num_cols_per_side, MPI_DOUBLE, right_rank, 1, MPI_COMM_WORLD, &requests[2]);
+    MPI_Recv_init(recvbuf_right.data(), rows * num_cols_per_side, MPI_DOUBLE, right_rank, 0, MPI_COMM_WORLD, &requests[3]);
 
-    MPI_Send_init(sendbuf_left.data(), sendcounts[0], MPI_DOUBLE, left_rank, 0, MPI_COMM_WORLD, &requests[0]);
-    MPI_Recv_init(recvbuf_left.data(), recvcounts[0], MPI_DOUBLE, left_rank, 1, MPI_COMM_WORLD, &requests[1]);
+    MPI_Barrier(MPI_COMM_WORLD); // 同步
 
-    MPI_Send_init(sendbuf_right.data(), sendcounts[1], MPI_DOUBLE, right_rank, 1, MPI_COMM_WORLD, &requests[2]);
-    MPI_Recv_init(recvbuf_right.data(), recvcounts[1], MPI_DOUBLE, right_rank, 0, MPI_COMM_WORLD, &requests[3]);
-
-    // 启动所有通信（双缓冲+重叠）
+    // 启动通信
     MPI_Startall(4, requests);
 
-    // ⚙️ 这里可以放主计算部分，与通信重叠执行
-    // heavy_computation(matrix);
+    // ⚙️ 这里可以放主计算部分，重叠计算和通信
 
     // 等待通信完成
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+
+    MPI_Barrier(MPI_COMM_WORLD); // 同步
 
     // 更新矩阵边界值
     if (left_rank != MPI_PROC_NULL) {
@@ -268,6 +260,8 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
             matrix(i, cols - 1) = recvbuf_right[i * num_cols_per_side + 1];
         }
     }
+
+    MPI_Barrier(MPI_COMM_WORLD); // 同步
 
     // 释放 persistent request 和 communicator
     for (int i = 0; i < 4; ++i) {
@@ -341,124 +335,105 @@ for (int i = 0; i <= mesh.ny + 1; i++) {
         }
     }
 }
-
-// 并行共轭梯度（CG）算法实现
-// 输入：
-// A - 系数矩阵（稀疏格式）
-// b - 右端项向量
-// x - 初始解向量，结果将存储在此
-// epsilon - 收敛精度
-// max_iter - 最大迭代次数
-// rank - 当前进程的标识符（MPI）
-// num_procs - 总进程数量（MPI）
-
 void CG_parallel(Equation& equ, Mesh mesh, VectorXd& b, VectorXd& x, double epsilon, 
-                int max_iter, int rank, int num_procs, double& r0) {
-    int n = equ.A.rows();
-    SparseMatrix<double> A = equ.A;
-     
-    // 计算初始残差
-    VectorXd r = b - A * x;//矩阵向量乘 n1
-    MPI_Barrier(MPI_COMM_WORLD);
-    MatrixXd r_field(mesh.ny+2, mesh.nx+2), x_field(mesh.ny+2, mesh.nx+2);
-    //交换矩阵重叠区域并计算
-    vectorToMatrix(r, r_field, mesh);
-    vectorToMatrix(x, x_field, mesh);
-    MPI_Barrier(MPI_COMM_WORLD);
-    exchangeColumns(x_field, rank, num_procs);
-    MPI_Barrier(MPI_COMM_WORLD);
-    //修正重叠单元
-    Parallel_correction2(mesh, equ, r_field, x_field);
-    MPI_Barrier(MPI_COMM_WORLD);
-    //写回向量
-    matrixToVector(r_field, r, mesh);
-    MPI_Barrier(MPI_COMM_WORLD);
-    VectorXd p = r;         
-    VectorXd Ap(n);
-    
-    // 计算初始残差和基准残差
-    double r_norm = r.squaredNorm();
-    double b_norm = b.squaredNorm();
-    
-    double local_b_norm = b_norm;
-    double global_b_norm;
-    // 使用 MPI_Allreduce 来将各个进程的 b_norm 求最大值（或总和等），确保每个进程能够看到全局的 b_norm
+    int max_iter, int rank, int num_procs, double& r0) {
+int n = equ.A.rows();
+SparseMatrix<double> A = equ.A;
+
+// 计算初始残差
+VectorXd r = VectorXd::Zero(n); // 先初始化为0
+r = b - A * x; // 矩阵向量乘 n1
+MPI_Barrier(MPI_COMM_WORLD);
+
+// 矩阵场变量初始化
+MatrixXd r_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
+MatrixXd x_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
+
+//交换矩阵重叠区域并计算
+vectorToMatrix(r, r_field, mesh);
+vectorToMatrix(x, x_field, mesh);
+MPI_Barrier(MPI_COMM_WORLD);
+exchangeColumns(x_field, rank, num_procs);
+MPI_Barrier(MPI_COMM_WORLD);
+Parallel_correction2(mesh, equ, r_field, x_field);
+MPI_Barrier(MPI_COMM_WORLD);
+matrixToVector(r_field, r, mesh);
+MPI_Barrier(MPI_COMM_WORLD);
+
+VectorXd p = VectorXd::Zero(n);
+p = r;
+VectorXd Ap = VectorXd::Zero(n);
+
+// 初始残差和基准残差
+double r_norm = r.squaredNorm();
+double b_norm = b.squaredNorm();
+double local_b_norm = b_norm;
+double global_b_norm = 0.0;
+
+// 规约 b_norm
 MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-// 检查全局的 b_norm
 if (global_b_norm < 1e-13) {
-    x.setZero();
-    r0 = 0.0;
-    if (rank==0)
-    {
-       cout<<"全局b_norm小于1e-13，直接返回"<<endl;
-    }
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    return;  // 一旦判断为小于阈值，直接在所有进程处执行return
+x.setZero();
+r0 = 0.0;
+if (rank == 0) {
+std::cout << "全局b_norm小于1e-13，直接返回" << std::endl;
 }
-    // 使用绝对残差判据
-    double tol = epsilon * epsilon; // 直接使用给定的epsilon作为绝对收敛判据
-    
-    double global_r_norm;
-    //全局规约残差
-    MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-     r0 = sqrt(global_r_norm);  // 更新初始r0
-    int iter = 0;
-    MPI_Barrier(MPI_COMM_WORLD);
-    while (iter < max_iter) {
-        // 计算 Ap
-        Ap = A * p;
-        MatrixXd p_field(mesh.ny+2, mesh.nx+2), Ap_field(mesh.ny+2, mesh.nx+2);
-        vectorToMatrix(p, p_field, mesh);
-        vectorToMatrix(Ap, Ap_field, mesh);
-        MPI_Barrier(MPI_COMM_WORLD);
-        exchangeColumns(p_field, rank, num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
-        Parallel_correction(mesh, equ, Ap_field, p_field);
-        MPI_Barrier(MPI_COMM_WORLD);
-        matrixToVector(Ap_field, Ap, mesh);
-        MPI_Barrier(MPI_COMM_WORLD);
-        // 计算步长
-        double local_dot_p_Ap = p.dot(Ap);
-        double global_dot_p_Ap;
-        MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        double alpha = global_r_norm / global_dot_p_Ap;
-        MPI_Barrier(MPI_COMM_WORLD);
-        // 更新解和残差
-        x += alpha * p;
-        r -= alpha * Ap;
+MPI_Barrier(MPI_COMM_WORLD);
+return;
+}
 
-        // 计算新残差范数
-        double new_r_norm = r.squaredNorm();
-        double global_new_r_norm;
-        MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        // 更新r0为当前全局残差
-        MPI_Barrier(MPI_COMM_WORLD);
-        // 使用绝对残差判断收敛性
-       
+double tol = epsilon * epsilon;
+double global_r_norm = 0.0;
+MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+r0 = std::sqrt(global_r_norm);
 
-        // 更新搜索方向
-        double beta = global_new_r_norm / global_r_norm;
-        p = r + beta * p;
-        global_r_norm = global_new_r_norm;
+int iter = 0;
+MPI_Barrier(MPI_COMM_WORLD);
 
-        // 保存当前残差
-        r0 = sqrt(global_r_norm);
+while (iter < max_iter) {
+Ap.setZero();
+Ap = A * p;
 
-        /*if(rank == 0 && iter % 5 == 0) {
-            std::cout << "Iteration " << iter 
-                     << " Absolute residual: " << sqrt(global_new_r_norm) 
-                     << std::endl;
-        }*/
+MatrixXd p_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
+MatrixXd Ap_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
 
-        iter++;
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
-    // 确保最终r0同步
-   // MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Barrier(MPI_COMM_WORLD);
+vectorToMatrix(p, p_field, mesh);
+vectorToMatrix(Ap, Ap_field, mesh);
+MPI_Barrier(MPI_COMM_WORLD);
+exchangeColumns(p_field, rank, num_procs);
+MPI_Barrier(MPI_COMM_WORLD);
+Parallel_correction(mesh, equ, Ap_field, p_field);
+MPI_Barrier(MPI_COMM_WORLD);
+matrixToVector(Ap_field, Ap, mesh);
+MPI_Barrier(MPI_COMM_WORLD);
+
+double local_dot_p_Ap = p.dot(Ap);
+double global_dot_p_Ap = 0.0;
+MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+double alpha = global_r_norm / global_dot_p_Ap;
+MPI_Barrier(MPI_COMM_WORLD);
+
+x += alpha * p;
+r -= alpha * Ap;
+
+double new_r_norm = r.squaredNorm();
+double global_new_r_norm = 0.0;
+MPI_Barrier(MPI_COMM_WORLD);
+MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+MPI_Barrier(MPI_COMM_WORLD);
+
+double beta = global_new_r_norm / global_r_norm;
+p = r + beta * p;
+global_r_norm = global_new_r_norm;
+
+r0 = std::sqrt(global_r_norm);
+iter++;
+MPI_Barrier(MPI_COMM_WORLD);
+}
+
+MPI_Barrier(MPI_COMM_WORLD);
 }
 
 

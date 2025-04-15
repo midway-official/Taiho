@@ -96,26 +96,30 @@ double mu;
         std::cin >> mu;
     }
 
-    
+     // 初始化MPI环境
+     MPI_Init(&argc, &argv);
+     MPI_Barrier(MPI_COMM_WORLD);
 
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
-    
+    // 获取进程信息
+    int rank, num_procs;
     // 垂直分割网格
     std::vector<Mesh> sub_meshes = splitMeshVertically(original_mesh, n_splits);
-    
-    // 打印分割信息
+    if (rank==0)
+    {
+        // 打印分割信息
     std::cout << "网格已分割为 " << n_splits << " 个子网格:" << std::endl;
     for(int i = 0; i < sub_meshes.size(); i++) {
         std::cout << "子网格 " << i << " 尺寸: " 
                   << sub_meshes[i].nx << "x" << sub_meshes[i].ny << std::endl;
     }
     
-    // 初始化MPI环境
-    MPI_Init(&argc, &argv);
-    MPI_Barrier(MPI_COMM_WORLD);
-    // 获取进程信息
-    int rank, num_procs;
+    }
+    
+   
+   
+    
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 
@@ -132,14 +136,19 @@ double mu;
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
+    //test
+    //初始化
     mesh.u0.setZero();
     mesh.v0.setZero();
-   // mesh.u.setZero();
-   // mesh.v.setZero();
+    mesh.u_star.setZero();
+    mesh.v_star.setZero();
+    mesh.u_face.setZero();
+    mesh.v_face.setZero(); 
+    mesh.u.setZero();
+    mesh.v.setZero();
     mesh.p.setZero();
     mesh.p_prime.setZero();
     mesh.p_star.setZero();
-
 
    
    int nx0,ny0;
@@ -153,9 +162,10 @@ double mu;
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
-    
       
-       int max_outer_iterations=300;
+       //记录上一个时间步长的u v
+      
+       int max_outer_iterations=400;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -176,7 +186,7 @@ double mu;
 
 
     
-        //3求解线性方程组
+         //3求解线性方程组
         double epsilon_uv=0.01;
        
         MPI_Barrier(MPI_COMM_WORLD);
@@ -184,10 +194,11 @@ double mu;
         x_v.setZero();
         y_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,30,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,20,rank,num_procs,l2_norm_x);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,30,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,20,rank,num_procs,l2_norm_y);
+        MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -202,27 +213,35 @@ double mu;
 
        
         exchangeColumns(mesh.u, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.v, rank, num_procs);
-        
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(equ_u.A_p, rank, num_procs);
          MPI_Barrier(MPI_COMM_WORLD);
        
         //4速度插值到面
-        face_velocity(mesh ,equ_u);
+        face_velocity_S(mesh ,equ_u);
        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.u_face, rank, num_procs);
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.v_face, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
         
         double epsilon_p=1e-5;
         equ_p.initializeToZero();
-        pressure_function(mesh, equ_p, equ_u);
+        pressure_function_S(mesh, equ_p, equ_u);
         
         // 重新更新源项并重建矩阵
         equ_p.build_matrix();
         //求解
+
         
-       
+        
+        
+        mesh.p_prime.setZero();
+
+
+
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
@@ -234,10 +253,10 @@ double mu;
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         MPI_Barrier(MPI_COMM_WORLD);
         //8压力修正
-        correct_pressure(mesh,equ_u);
+        correct_pressure_S(mesh,equ_u);
         MPI_Barrier(MPI_COMM_WORLD);
         //9速度修正
-        correct_velocity(mesh,equ_u);
+        correct_velocity_S(mesh,equ_u);
         MPI_Barrier(MPI_COMM_WORLD);
         
         
@@ -294,7 +313,7 @@ if(global_converged) {
         std::cout << "所有进程达到收敛条件" << std::endl;
     }
     break;
-}    
+}
         saveMeshData(mesh,rank);
     MPI_Barrier(MPI_COMM_WORLD);
     }
