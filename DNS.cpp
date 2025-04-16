@@ -816,7 +816,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
 
     // 更新压力场
 
-    double alpha_p = 0.3;  // 压力松弛因子
+    double alpha_p = 0.2;  // 压力松弛因子
     p_star = p + alpha_p * p_prime;
 }
 

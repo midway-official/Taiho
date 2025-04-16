@@ -157,24 +157,13 @@ MPI_Bcast(folder_cstr, folder_length + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
 if (rank != 0) mesh_folder = std::string(folder_cstr);
 delete[] folder_cstr;
 
-// 广播其他参数
+// 广播参数
 MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 MPI_Bcast(&timesteps, 1, MPI_INT, 0, MPI_COMM_WORLD);
 MPI_Bcast(&mu, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-// 各进程确认收到
-MPI_Barrier(MPI_COMM_WORLD);
-/*if (rank != 0) {
-    std::cout << "[进程 " << rank << "] 参数同步完成:" << std::endl;
-    std::cout << "网格文件夹: " << mesh_folder << std::endl;
-    std::cout << "时间步长: " << dt << std::endl;
-    std::cout << "时间步数: " << timesteps << std::endl;
-    std::cout << "并行线程数: " << n_splits << std::endl;
-    std::cout << "粘度: " << mu << std::endl;
-}*/
 
-    
 
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
@@ -211,7 +200,7 @@ MPI_Barrier(MPI_COMM_WORLD);
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
-        //初始化
+        //初始化 默认初始化为全0场
         mesh.u0.setZero();
         mesh.v0.setZero();
         mesh.u_star.setZero();
@@ -223,64 +212,79 @@ MPI_Barrier(MPI_COMM_WORLD);
         mesh.p.setZero();
         mesh.p_prime.setZero();
         mesh.p_star.setZero();
-    
-    // ... 后续的计算过程 ...
+        
+        //mesh.u0.setOnes();
+        //mesh.u.setOnes();
+        //mesh.u_face.setOnes();
 
-
-
+   //设置网格参数
    int nx0,ny0;
    nx0=mesh.nx;
    ny0=mesh.ny;
 
 
-    //建立u v p的方程
+    //初始化建立u v p的方程
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
+
+    //残差初始化
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
+  
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
 
 
-
+    //piso算法外循环
     for (int i = 0; i <= timesteps; ++i) { 
         
        if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
         // 切换到当前编号文件夹
       
-       //记录上一个时间步长的u v
-      
+       
+        //piso内循环轮数 矫正2次压力
        int max_outer_iterations=2;
-           //simple算法迭代
+          
   
         MPI_Barrier(MPI_COMM_WORLD);
+        //归一化初始残差
         double init_l2_norm_x = -1.0;
        double init_l2_norm_y = -1.0;
        
-       MPI_Barrier(MPI_COMM_WORLD);
-       //1离散动量方程 
+      
+      
        double l2_norm_x, l2_norm_y;
-       
+       //初始化u v方向的方程
        equ_v.initializeToZero();
        equ_u.initializeToZero();
+
+       //离散动量方程
        momentum_function_PISO(mesh,equ_u,equ_v,mu,dt);
        MPI_Barrier(MPI_COMM_WORLD);
+
+
+       //组装动量方程
        equ_u.build_matrix();
        equ_v.build_matrix();
 
   
         
        //3求解线性方程组
-       double epsilon_uv=0.01;
+       
       
        MPI_Barrier(MPI_COMM_WORLD);
+       //生成并初始化解向量
        VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
        x_v.setZero();
        y_v.setZero();
-      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,25,rank,num_procs,l2_norm_x);
+
+       //求解u的动量方程 cg求解器
+      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,15,rank,num_procs,l2_norm_x);
        MPI_Barrier(MPI_COMM_WORLD);
-       
-       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,25,rank,num_procs,l2_norm_y);
+       //求解v的动量方程 cg求解器
+       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,15,rank,num_procs,l2_norm_y);
        MPI_Barrier(MPI_COMM_WORLD);
+
+       //将解向量写回矩阵场
        vectorToMatrix(x_v,mesh.u,mesh);
        MPI_Barrier(MPI_COMM_WORLD);
        vectorToMatrix(y_v,mesh.v,mesh);
@@ -292,57 +296,64 @@ MPI_Barrier(MPI_COMM_WORLD);
 
      
        
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        MPI_Barrier(MPI_COMM_WORLD);
+        //数据交换 交换u v 和矩阵主对角元系数ap
        exchangeColumns(mesh.u, rank, num_procs);
-       MPI_Barrier(MPI_COMM_WORLD);
+       
        exchangeColumns(mesh.v, rank, num_procs);
-       MPI_Barrier(MPI_COMM_WORLD);
+       
        exchangeColumns(equ_u.A_p, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
+
+
+        //piso算法压力修正循环
     for(int n=1;n<=max_outer_iterations;n++) {
         
        
-        //4速度插值到面
+        //cell中心速度插值到面 动量插值
         face_velocity(mesh ,equ_u);
         
         MPI_Barrier(MPI_COMM_WORLD);
         
         double epsilon_p=1e-5;
+
+        //初始化压力修正方程
         equ_p.initializeToZero();
+
+        //离散压力修正方程
         pressure_function(mesh, equ_p, equ_u);
        
-        // 重新更新源项并重建矩阵
+        // 组装压力修正方程
         equ_p.build_matrix();
-        //求解
+        //求解压力修正方程
         VectorXd p_v(mesh.internumber);
 
-
+        //初始压力修正场
         mesh.p_prime.setZero();
 
 
         p_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,140,rank,num_procs,l2_norm_p);
-        MPI_Barrier(MPI_COMM_WORLD);
+
+        //求解压力修正方程
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,30,rank,num_procs,l2_norm_p);
+     
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
         
          
                 
         
-        MPI_Barrier(MPI_COMM_WORLD);
-        //8压力修正
+ 
+        //压力修正
         correct_pressure(mesh,equ_u);
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         MPI_Barrier(MPI_COMM_WORLD);
-        //9速度修正
+        //速度修正
         correct_velocity(mesh,equ_u);
         MPI_Barrier(MPI_COMM_WORLD);
         
         
-        //10更新压力
+        //更新压力 速度 并交换数值
         mesh.p = mesh.p_star;
         mesh.u = mesh.u_star;
         mesh.v = mesh.v_star;
@@ -354,7 +365,7 @@ MPI_Barrier(MPI_COMM_WORLD);
 
         exchangeColumns(mesh.v, rank, num_procs);
         MPI_Barrier(MPI_COMM_WORLD);
-        
+        exchangeColumns(mesh.p, rank, num_procs);
         
         double init_l2_norm_p = -1.0;
         MPI_Barrier(MPI_COMM_WORLD);

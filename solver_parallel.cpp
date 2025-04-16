@@ -27,7 +27,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!u_file) {
             throw std::runtime_error("无法创建文件: " + u_filename);
         }
-        u_file << mesh.u;
+        u_file << mesh.u_star;
         u_file.close();
 
         // 保存v场
@@ -35,7 +35,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!v_file) {
             throw std::runtime_error("无法创建文件: " + v_filename);
         }
-        v_file << mesh.v;
+        v_file << mesh.v_star;
         v_file.close();
 
         // 保存p场
@@ -43,7 +43,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!p_file) {
             throw std::runtime_error("无法创建文件: " + p_filename);
         }
-        p_file << mesh.p;
+        p_file << mesh.p_star;
         p_file.close();
 
         //std::cout << "进程 " << rank << " 的数据已保存到文件" << std::endl;
@@ -145,7 +145,9 @@ double mu;
     mesh.p_prime.setZero();
     mesh.p_star.setZero();
 
+    
 
+    
 
    
    int nx0,ny0;
@@ -177,7 +179,8 @@ double mu;
         MPI_Barrier(MPI_COMM_WORLD);
         //1离散动量方程 
         double l2_norm_x, l2_norm_y;
-        
+        mesh.u.setZero();
+        mesh.v.setZero();
         equ_v.initializeToZero();
         equ_u.initializeToZero();
         momentum_function_unsteady(mesh,equ_u,equ_v,mu,dt);
@@ -195,10 +198,10 @@ double mu;
         x_v.setZero();
         y_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,20,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,25,rank,num_procs,l2_norm_x);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,20,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,25,rank,num_procs,l2_norm_y);
         MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
@@ -240,13 +243,13 @@ double mu;
         
         
         mesh.p_prime.setZero();
-
+        mesh.p_star.setZero();
 
 
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,50,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,160,rank,num_procs,l2_norm_p);
         MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
@@ -265,10 +268,10 @@ double mu;
         mesh.p=mesh.p_star;
          
         MPI_Barrier(MPI_COMM_WORLD);
-        exchangeColumns(mesh.p, rank, num_procs);
-        
-     
-        
+        exchangeColumns(mesh.u_star, rank, num_procs); 
+        exchangeColumns(mesh.v_star, rank, num_procs); 
+        exchangeColumns(mesh.u_face, rank, num_procs); 
+        exchangeColumns(mesh.v_face, rank, num_procs); 
        
         MPI_Barrier(MPI_COMM_WORLD);
        

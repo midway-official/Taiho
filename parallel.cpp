@@ -239,7 +239,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     // 启动通信
     MPI_Startall(4, requests);
 
-    // ⚙️ 这里可以放主计算部分，重叠计算和通信
+    
 
     // 等待通信完成
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);

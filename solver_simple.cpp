@@ -149,7 +149,21 @@ double mu;
     mesh.p.setZero();
     mesh.p_prime.setZero();
     mesh.p_star.setZero();
-
+    
+    //设置初始场
+    mesh.u0.setOnes();
+    mesh.v0.setZero();
+    mesh.u_star.setOnes();
+    mesh.v_star.setZero();
+    mesh.u_face.setOnes();
+    mesh.v_face.setZero(); 
+    mesh.u.setOnes();
+    mesh.v.setZero();
+    mesh.p.setZero();
+    mesh.p_prime.setZero();
+    mesh.p_star.setZero();
+    
+    
    
    int nx0,ny0;
    nx0=mesh.nx;
@@ -195,10 +209,10 @@ double mu;
         x_v.setZero();
         y_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,25,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,40,rank,num_procs,l2_norm_x);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,25,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,40,rank,num_procs,l2_norm_y);
         MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
@@ -246,7 +260,7 @@ double mu;
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
         MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,140,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,200,rank,num_procs,l2_norm_p);
         MPI_Barrier(MPI_COMM_WORLD);
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          MPI_Barrier(MPI_COMM_WORLD);
@@ -265,7 +279,10 @@ double mu;
         mesh.p=mesh.p_star;
          
         MPI_Barrier(MPI_COMM_WORLD);
-       
+        exchangeColumns(mesh.u_star, rank, num_procs); 
+        exchangeColumns(mesh.v_star, rank, num_procs); 
+        exchangeColumns(mesh.u_face, rank, num_procs); 
+        exchangeColumns(mesh.v_face, rank, num_procs); 
        
        // 记录初始残差（仅第一次迭代）
 if (n == 1) {
