@@ -58,13 +58,13 @@ void recvMatrixColumnWithSafety(vector<double>& recv_buffer, int src_rank, int t
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
     const int cols = matrix.cols();
-
+ 
     // 初始化缓冲区，先全置 0
     vector<double> send_left_0(rows, 0.0), send_left_1(rows, 0.0);
     vector<double> send_right_0(rows, 0.0), send_right_1(rows, 0.0);
     vector<double> recv_left_0(rows, 0.0), recv_left_1(rows, 0.0);
     vector<double> recv_right_0(rows, 0.0), recv_right_1(rows, 0.0);
-
+ 
     // 填充发送数据
     for (int i = 0; i < rows; i++) {
         send_left_0[i]  = matrix(i, 2);
@@ -72,7 +72,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         send_right_0[i] = matrix(i, cols - 4);
         send_right_1[i] = matrix(i, cols - 3);
     }
-
+    MPI_Barrier(MPI_COMM_WORLD);
     int left_rank  = (rank == 0) ? MPI_PROC_NULL : rank - 1;
     int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
 
@@ -219,8 +219,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         sendbuf_right[i * num_cols_per_side + 1] = matrix(i, cols - 3);
     }
 
-    MPI_Barrier(MPI_COMM_WORLD); // 同步
-
+    MPI_Barrier(MPI_COMM_WORLD);
     // 建立 persistent communicator topology（cartesian 拓扑）
     MPI_Comm cart_comm;
     int dims[1] = { num_procs };
@@ -234,8 +233,6 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     MPI_Send_init(sendbuf_right.data(), rows * num_cols_per_side, MPI_DOUBLE, right_rank, 1, MPI_COMM_WORLD, &requests[2]);
     MPI_Recv_init(recvbuf_right.data(), rows * num_cols_per_side, MPI_DOUBLE, right_rank, 0, MPI_COMM_WORLD, &requests[3]);
 
-    MPI_Barrier(MPI_COMM_WORLD); // 同步
-
     // 启动通信
     MPI_Startall(4, requests);
 
@@ -244,7 +241,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     // 等待通信完成
     MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
 
-    MPI_Barrier(MPI_COMM_WORLD); // 同步
+  
 
     // 更新矩阵边界值
     if (left_rank != MPI_PROC_NULL) {
@@ -260,8 +257,6 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
             matrix(i, cols - 1) = recvbuf_right[i * num_cols_per_side + 1];
         }
     }
-
-    MPI_Barrier(MPI_COMM_WORLD); // 同步
 
     // 释放 persistent request 和 communicator
     for (int i = 0; i < 4; ++i) {
@@ -352,13 +347,13 @@ MatrixXd x_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
 //交换矩阵重叠区域并计算
 vectorToMatrix(r, r_field, mesh);
 vectorToMatrix(x, x_field, mesh);
-MPI_Barrier(MPI_COMM_WORLD);
+
 exchangeColumns(x_field, rank, num_procs);
-MPI_Barrier(MPI_COMM_WORLD);
+
 Parallel_correction2(mesh, equ, r_field, x_field);
-MPI_Barrier(MPI_COMM_WORLD);
+
 matrixToVector(r_field, r, mesh);
-MPI_Barrier(MPI_COMM_WORLD);
+
 
 VectorXd p = VectorXd::Zero(n);
 p = r;
@@ -389,7 +384,6 @@ MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 r0 = std::sqrt(global_r_norm);
 
 int iter = 0;
-MPI_Barrier(MPI_COMM_WORLD);
 
 while (iter < max_iter) {
 Ap.setZero();
@@ -400,29 +394,27 @@ MatrixXd Ap_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
 
 vectorToMatrix(p, p_field, mesh);
 vectorToMatrix(Ap, Ap_field, mesh);
-MPI_Barrier(MPI_COMM_WORLD);
+
 exchangeColumns(p_field, rank, num_procs);
-MPI_Barrier(MPI_COMM_WORLD);
+
 Parallel_correction(mesh, equ, Ap_field, p_field);
-MPI_Barrier(MPI_COMM_WORLD);
+
 matrixToVector(Ap_field, Ap, mesh);
-MPI_Barrier(MPI_COMM_WORLD);
 
 double local_dot_p_Ap = p.dot(Ap);
 double global_dot_p_Ap = 0.0;
 MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 double alpha = global_r_norm / global_dot_p_Ap;
-MPI_Barrier(MPI_COMM_WORLD);
 
 x += alpha * p;
 r -= alpha * Ap;
 
 double new_r_norm = r.squaredNorm();
 double global_new_r_norm = 0.0;
-MPI_Barrier(MPI_COMM_WORLD);
+
 MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-MPI_Barrier(MPI_COMM_WORLD);
+
 
 double beta = global_new_r_norm / global_r_norm;
 p = r + beta * p;

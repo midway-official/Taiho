@@ -193,19 +193,18 @@ double mu;
          //3求解线性方程组
         double epsilon_uv=0.01;
        
-        MPI_Barrier(MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         x_v.setZero();
         y_v.setZero();
-        MPI_Barrier(MPI_COMM_WORLD);
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,25,rank,num_procs,l2_norm_x);
+     
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,15,rank,num_procs,l2_norm_x);
         
-        MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,25,rank,num_procs,l2_norm_y);
-        MPI_Barrier(MPI_COMM_WORLD);
+       
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,15,rank,num_procs,l2_norm_y);
+       
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
-        MPI_Barrier(MPI_COMM_WORLD);
+     
         
 
 
@@ -213,27 +212,27 @@ double mu;
 
       
         
-          MPI_Barrier(MPI_COMM_WORLD);
+       
 
        
         exchangeColumns(mesh.u, rank, num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
+        
         exchangeColumns(mesh.v, rank, num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
+        
         exchangeColumns(equ_u.A_p, rank, num_procs);
-         MPI_Barrier(MPI_COMM_WORLD);
+       
        
         //4速度插值到面
-        face_velocity_S(mesh ,equ_u);
-       MPI_Barrier(MPI_COMM_WORLD);
+        face_velocity(mesh ,equ_u);
+     
         exchangeColumns(mesh.u_face, rank, num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
+        
         exchangeColumns(mesh.v_face, rank, num_procs);
-        MPI_Barrier(MPI_COMM_WORLD);
+        
         
         double epsilon_p=1e-5;
         equ_p.initializeToZero();
-        pressure_function_S(mesh, equ_p, equ_u);
+        pressure_function(mesh, equ_p, equ_u);
         
         // 重新更新源项并重建矩阵
         equ_p.build_matrix();
@@ -248,32 +247,28 @@ double mu;
 
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
-        MPI_Barrier(MPI_COMM_WORLD);
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,160,rank,num_procs,l2_norm_p);
-        MPI_Barrier(MPI_COMM_WORLD);
+      
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,35,rank,num_procs,l2_norm_p);
+        
         vectorToMatrix(p_v,mesh.p_prime,mesh);
-         MPI_Barrier(MPI_COMM_WORLD);
+      
        
         exchangeColumns(mesh.p_prime, rank, num_procs); 
-        MPI_Barrier(MPI_COMM_WORLD);
+        
         //8压力修正
-        correct_pressure_S(mesh,equ_u);
-        MPI_Barrier(MPI_COMM_WORLD);
+        correct_pressure(mesh,equ_u);
+
         //9速度修正
-        correct_velocity_S(mesh,equ_u);
-        MPI_Barrier(MPI_COMM_WORLD);
+        correct_velocity(mesh,equ_u);
+      
         
         
         //10更新压力
         mesh.p=mesh.p_star;
          
-        MPI_Barrier(MPI_COMM_WORLD);
-        exchangeColumns(mesh.u_star, rank, num_procs); 
-        exchangeColumns(mesh.v_star, rank, num_procs); 
-        exchangeColumns(mesh.u_face, rank, num_procs); 
-        exchangeColumns(mesh.v_face, rank, num_procs); 
+     
        
-        MPI_Barrier(MPI_COMM_WORLD);
+  
        
        // 记录初始残差（仅第一次迭代）
 if (n == 1) {

@@ -69,16 +69,16 @@ public:
 
 void solve(Equation& equation, double epsilon, double& l2_norm, MatrixXd& phi);
 void face_velocity(Mesh &mesh,Equation &equ_u);
-void face_velocity_S(Mesh &mesh,Equation &equ_u);
+
 
 void pressure_function(Mesh &mesh,Equation &equ_p,Equation &equ_u);
-void pressure_function_S(Mesh &mesh,Equation &equ_p,Equation &equ_u);
+
 //修正压力
 void correct_pressure(Mesh &mesh,Equation &equ_u);
-void correct_pressure_S(Mesh &mesh,Equation &equ_u);
+
 
 void correct_velocity(Mesh &mesh,Equation &equ_u);
-void correct_velocity_S(Mesh &mesh,Equation &equ_u);
+
 void post_processing(Mesh &mseh);
 
 void show_progress_bar(int current_step, int total_steps, double elapsed_time);
