@@ -326,7 +326,9 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
        double init_l2_norm_y = -1.0;
        
       
-      
+        // 同步 dx 和 dy 给所有进程
+    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
        double l2_norm_x, l2_norm_y;
        //初始化u v方向的方程
        equ_v.initializeToZero();
@@ -382,7 +384,7 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
         //piso算法压力修正循环
     for(int n=1;n<=max_outer_iterations;n++) {
         
-       
+        
         //cell中心速度插值到面 动量插值
         face_velocity(mesh ,equ_u);
         

@@ -387,10 +387,7 @@ double mu;
         mesh.p=mesh.p_star;
         //交换压力数值
         exchangeColumns(mesh.p, rank, num_procs);
-        exchangeColumns(mesh.u, rank, num_procs);
-        exchangeColumns(mesh.v, rank, num_procs);
-        exchangeColumns(mesh.u_face, rank, num_procs);
-        exchangeColumns(mesh.v_face, rank, num_procs);
+        
         
        
   

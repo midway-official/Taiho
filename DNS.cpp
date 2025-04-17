@@ -1,6 +1,7 @@
 // dns.cpp
 #include "DNS.h"
 #include <filesystem>
+#include "parallel.h"
 namespace fs = std::filesystem;
 // 全局变量定义
 
@@ -604,16 +605,16 @@ void correct_pressure(Mesh &mesh, Equation &equ_u,double alpha_p)
         for(int j = 0; j <= n_x + 1; j++) {
             if(bctype(i,j) > 0) {  // 边界点
                 
-                    p_prime(i,j) = 0;
+                    p(i,j) = 0;
                 }
             }
         }
     
 
     // 更新压力场
-
+    
       // 压力松弛因子
-    p_star = p + alpha_p * p_prime;
+   mesh.p_star = mesh.p + alpha_p * mesh.p_prime;
 }
 
 void correct_velocity(Mesh &mesh, Equation &equ_u)
@@ -629,123 +630,105 @@ void correct_velocity(Mesh &mesh, Equation &equ_u)
     MatrixXd &A_p = equ_u.A_p;
     int n_x = mesh.nx;
     int n_y = mesh.ny;
+
     
 
-    // 修正 u 速度
-    for(int i = 0; i <= n_y+1; i++) {
-        for(int j = 0; j <= n_x+1; j++) {
-            if(bctype(i,j) == 0) {  // 当前点是内部面
+    // 修正 u_star
+    for (int i = 0; i <= n_y+1; i++) {
+        for (int j = 0; j <= n_x+1; j++) {
+            if (bctype(i,j) == 0) {
                 double p_west, p_east;
 
-// 检查西面
-if(bctype(i,j-1) == 0||bctype(i,j-1) == -3) {
-    p_west = p_prime(i,j-1);  // 内部点，使用邻居的压力
-} else if(bctype(i,j-1) > 0) {
-    p_west = p_prime(i,j);    // 固定边界，使用当前点的压力
-} else if(bctype(i,j-1) ==-2) {
-    p_west = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}else if(bctype(i,j-1) ==-1) {
-    p_west = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}
+                // 西面
+                if (bctype(i,j-1) == 0 || bctype(i,j-1) == -3)
+                    p_west = p_prime(i,j-1);
+                else
+                    p_west = p_prime(i,j);
 
-// 检查东面
-if(bctype(i,j+1) == 0||bctype(i,j+1) == -3) {
-    p_east = p_prime(i,j+1);  // 内部点，使用邻居的压力
-} else if(bctype(i,j+1) > 0) {
-    p_east = p_prime(i,j);    // 固定边界，使用当前点的压力
-}
-else if(bctype(i,j+1) ==-2) {
-    p_east = p_prime(i,j);    // 固定边界，使用当前点的压力
-} 
- else if(bctype(i,j+1) ==-1) {
-    p_east =p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}
-                
-                u_star(i,j) = u(i,j) + 0.5*(p_west - p_east)*dy/A_p(i,j);
+                // 东面
+                if (bctype(i,j+1) == 0 || bctype(i,j+1) == -3)
+                    p_east = p_prime(i,j+1);
+                else
+                    p_east = p_prime(i,j);
+
+                u_star(i,j) = u(i,j) + 0.5 * (p_west - p_east) * dy / A_p(i,j);
             }
         }
     }
 
-    // 修正 v 速度
-    for(int i = 0; i <= n_y+1; i++) {
-        for(int j = 0; j <= n_x+1; j++) {
-            if(bctype(i,j) == 0) {  // 当前点是内部面
+    // 修正 v_star
+    for (int i = 0; i <= n_y+1; i++) {
+        for (int j = 0; j <= n_x+1; j++) {
+            if (bctype(i,j) == 0) {
                 double p_north, p_south;
 
-// 检查北面
-if(bctype(i-1,j) == 0||bctype(i-1,j) == -3) {
-    p_north = p_prime(i-1,j);  // 内部点，使用邻居的压力
-} else if(bctype(i-1,j) > 0) {
-    p_north = p_prime(i,j);    // 固定边界，使用当前点的压力
-} else if(bctype(i-1,j) ==-2) {
-    p_north =p_prime(i,j) ;             // 压力边界或滑移边界，压力设为0
- }else if(bctype(i-1,j) ==-1) {
-    p_north = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
- }else if(bctype(i-1,j) > -10) {
-    p_north = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}
+                // 北面
+                if (bctype(i-1,j) == 0 || bctype(i-1,j) == -3)
+                    p_north = p_prime(i-1,j);
+                else
+                    p_north = p_prime(i,j);
 
-// 检查南面
-if(bctype(i+1,j) == 0||bctype(i+1,j) == -3) {
-    p_south = p_prime(i+1,j);  // 内部点，使用邻居的压力
-} else if(bctype(i+1,j) > 0) {
-    p_south = p_prime(i,j);    // 固定边界，使用当前点的压力
-} else if(bctype(i+1,j) ==-2) {
-    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}
-else if(bctype(i+1,j) ==-1) {
-    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}
-else if(bctype(i+1,j) > -10) {
-    p_south = p_prime(i,j);             // 压力边界或滑移边界，压力设为0
-}
-                
-                v_star(i,j) = v(i,j) + 0.5*(p_south - p_north)*dx/A_p(i,j);
+                // 南面
+                if (bctype(i+1,j) == 0 || bctype(i+1,j) == -3)
+                    p_south = p_prime(i+1,j);
+                else
+                    p_south = p_prime(i,j);
+
+                v_star(i,j) = v(i,j) + 0.5 * (p_south - p_north) * dx / A_p(i,j);
             }
         }
     }
 
-    // 修正 u_face
-    for(int i = 0; i <= n_y+1; i++) {
-        for(int j = 0; j <= n_x; j++) {
-            if((bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
-(bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
-(bctype(i,j) == -3 && bctype(i,j+1) == 0)) {  // 检查两侧是否都是内部面
+    // 修正 u_face (互斥判断)
+    for (int i = 0; i <= n_y+1; i++) {
+        for (int j = 0; j <= n_x; j++) {
+            if ((bctype(i,j) == 0 && bctype(i,j+1) == 0) ||
+                (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
+                (bctype(i,j) == -3 && bctype(i,j+1) == 0)) {
+                // 情况1：内部或特殊内部 → 做压力修正
                 u_face(i,j) = u_face(i,j) + 
-                    0.5*(1/A_p(i,j) + 1/A_p(i,j+1))*(p_prime(i,j) - p_prime(i,j+1))*dy;
-             if( (bctype(i,j) == 0 && bctype(i,j+1) == -1 ) ){
-                  u_face(i,j)=u_star(i,j);
-                  
-                }
-              if( (bctype(i,j) == -1 && bctype(i,j+1) == 0 ) ){
-                  u_face(i,j)=u_star(i,j+1);
-                  
-
-                }
+                              0.5 * (1/A_p(i,j) + 1/A_p(i,j+1)) * 
+                              (p_prime(i,j) - p_prime(i,j+1)) * dy;
+            }
+            else if (bctype(i,j) == 0 && bctype(i,j+1) == -1) {
+                // 情况2：内部-压力边界 → 用 u_star(i,j)
+                u_face(i,j) = u_star(i,j);
+            }
+            else if (bctype(i,j) == -1 && bctype(i,j+1) == 0) {
+                // 情况3：压力边界-内部 → 用 u_star(i,j+1)
+                u_face(i,j) = u_star(i,j+1);
+            }
+            else {
+                // 其它情况，保持不变或由边界条件处理
             }
         }
     }
 
-    // 修正 v_face
-    for(int i = 0; i <= n_y; i++) {
-        for(int j = 0; j <= n_x+1; j++) {
-            if((bctype(i,j) == 0 ) && ( bctype(i+1,j) == 0)) {  // 检查上下是否都是内部面
+    // 修正 v_face (互斥判断)
+    for (int i = 0; i <= n_y; i++) {
+        for (int j = 0; j <= n_x+1; j++) {
+            if ((bctype(i,j) == 0 && bctype(i+1,j) == 0) ||
+                (bctype(i,j) == 0 && bctype(i+1,j) == -3) ||
+                (bctype(i,j) == -3 && bctype(i+1,j) == 0)) {
+                // 情况1：内部或特殊内部 → 做压力修正
                 v_face(i,j) = v_face(i,j) + 
-                    0.5*(1/A_p(i,j) + 1/A_p(i+1,j))*(p_prime(i+1,j) - p_prime(i,j))*dx;
+                              0.5 * (1/A_p(i,j) + 1/A_p(i+1,j)) * 
+                              (p_prime(i+1,j) - p_prime(i,j)) * dx;
             }
-            if( (bctype(i,j) == 0 && bctype(i+1,j) == -1 ) ){
-                  v_face(i,j)=v_star(i,j);
-                  
-                }
-              if( (bctype(i,j) == -1 && bctype(i+1,j) == 0 ) ){
-                  v_face(i,j)=v_star(i+1,j);
-                 
-
-                }
+            else if (bctype(i,j) == 0 && bctype(i+1,j) == -1) {
+                // 情况2：内部-压力边界 → 用 v_star(i,j)
+                v_face(i,j) = v_star(i,j);
+            }
+            else if (bctype(i,j) == -1 && bctype(i+1,j) == 0) {
+                // 情况3：压力边界-内部 → 用 v_star(i+1,j)
+                v_face(i,j) = v_star(i+1,j);
+            }
+            else {
+                // 其它情况，保持不变或由边界条件处理
+            }
         }
     }
 }
-
 
 void post_processing(Mesh &mseh)
 {   

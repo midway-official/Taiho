@@ -54,7 +54,7 @@ void recvMatrixColumnWithSafety(vector<double>& recv_buffer, int src_rank, int t
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 }
-/*
+
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
     const int cols = matrix.cols();
@@ -111,87 +111,11 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
             matrix(i, cols - 1) = recv_right_1[i];
         }
     }
-}*/
+}
+
 
 
 /*
-void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
-    const int rows = matrix.rows();
-    const int cols = matrix.cols();
-
-    // 每次发两列，接收两列，打包后统一处理
-    vector<double> send_left_buffer(2 * rows, 0.0);
-    vector<double> send_right_buffer(2 * rows, 0.0);
-    vector<double> recv_left_buffer(2 * rows, 0.0);
-    vector<double> recv_right_buffer(2 * rows, 0.0);
-
-    int left_rank = (rank == 0) ? MPI_PROC_NULL : rank - 1;
-    int right_rank = (rank == num_procs - 1) ? MPI_PROC_NULL : rank + 1;
-
-    MPI_Request requests[4];
-    int req_count = 0;
-
-    // 打包左邻居要发的数据
-    if (left_rank != MPI_PROC_NULL) {
-        for (int i = 0; i < rows; i++) {
-            send_left_buffer[i] = matrix(i, 2);    // 第2列
-            send_left_buffer[i + rows] = matrix(i, 3);  // 第3列
-        }
-        MPI_Isend(send_left_buffer.data(), 2 * rows, MPI_DOUBLE, left_rank, 0, MPI_COMM_WORLD, &requests[req_count++]);
-        MPI_Irecv(recv_left_buffer.data(), 2 * rows, MPI_DOUBLE, left_rank, 1, MPI_COMM_WORLD, &requests[req_count++]);
-    }
-
-    // 打包右邻居要发的数据
-    if (right_rank != MPI_PROC_NULL) {
-        for (int i = 0; i < rows; i++) {
-            send_right_buffer[i] = matrix(i, cols - 4);    // 倒数第4列
-            send_right_buffer[i + rows] = matrix(i, cols - 3);  // 倒数第3列
-        }
-        MPI_Isend(send_right_buffer.data(), 2 * rows, MPI_DOUBLE, right_rank, 1, MPI_COMM_WORLD, &requests[req_count++]);
-        MPI_Irecv(recv_right_buffer.data(), 2 * rows, MPI_DOUBLE, right_rank, 0, MPI_COMM_WORLD, &requests[req_count++]);
-    }
-
-    // 等待所有请求完成
-    MPI_Waitall(req_count, requests, MPI_STATUSES_IGNORE);
-
-    // 更新矩阵
-    if (left_rank != MPI_PROC_NULL) {
-        for (int i = 0; i < rows; i++) {
-            // 确保接收到的数据有效，防止 NaN
-            if (std::isnan(recv_left_buffer[i])) {
-                std::cerr << "Rank " << rank << " detected NaN at left buffer [" << i << "]\n";
-                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
-            }
-            matrix(i, 0) = recv_left_buffer[i];  // 更新第0列
-
-            if (std::isnan(recv_left_buffer[i + rows])) {
-                std::cerr << "Rank " << rank << " detected NaN at left buffer [" << i + rows << "]\n";
-                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
-            }
-            matrix(i, 1) = recv_left_buffer[i + rows];  // 更新第1列
-        }
-    }
-
-    if (right_rank != MPI_PROC_NULL) {
-        for (int i = 0; i < rows; i++) {
-            // 确保接收到的数据有效，防止 NaN
-            if (std::isnan(recv_right_buffer[i])) {
-                std::cerr << "Rank " << rank << " detected NaN at right buffer [" << i << "]\n";
-                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
-            }
-            matrix(i, cols - 2) = recv_right_buffer[i];  // 更新倒数第2列
-
-            if (std::isnan(recv_right_buffer[i + rows])) {
-                std::cerr << "Rank " << rank << " detected NaN at right buffer [" << i + rows << "]\n";
-                MPI_Abort(MPI_COMM_WORLD, 1);  // 发现 NaN 时终止程序
-            }
-            matrix(i, cols - 1) = recv_right_buffer[i + rows];  // 更新倒数第1列
-        }
-    }
-}*/
-//
-
-
 //超高性能的列交换函数
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
@@ -263,7 +187,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         MPI_Request_free(&requests[i]);
     }
     MPI_Comm_free(&cart_comm);
-}
+}*/
 
 
 // 从解向量转换为场矩阵
@@ -347,13 +271,13 @@ MatrixXd x_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
 //交换矩阵重叠区域并计算
 vectorToMatrix(r, r_field, mesh);
 vectorToMatrix(x, x_field, mesh);
-
+MPI_Barrier(MPI_COMM_WORLD);
 exchangeColumns(x_field, rank, num_procs);
 
 Parallel_correction2(mesh, equ, r_field, x_field);
 
 matrixToVector(r_field, r, mesh);
-
+MPI_Barrier(MPI_COMM_WORLD);
 
 VectorXd p = VectorXd::Zero(n);
 p = r;
@@ -366,6 +290,7 @@ double local_b_norm = b_norm;
 double global_b_norm = 0.0;
 
 // 规约 b_norm
+MPI_Barrier(MPI_COMM_WORLD);
 MPI_Allreduce(&local_b_norm, &global_b_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 if (global_b_norm < 1e-13) {
@@ -380,6 +305,7 @@ return;
 
 double tol = epsilon * epsilon;
 double global_r_norm = 0.0;
+MPI_Barrier(MPI_COMM_WORLD);
 MPI_Allreduce(&r_norm, &global_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 r0 = std::sqrt(global_r_norm);
 
@@ -394,15 +320,16 @@ MatrixXd Ap_field = MatrixXd::Zero(mesh.ny+2, mesh.nx+2);
 
 vectorToMatrix(p, p_field, mesh);
 vectorToMatrix(Ap, Ap_field, mesh);
-
+MPI_Barrier(MPI_COMM_WORLD);
 exchangeColumns(p_field, rank, num_procs);
-
+MPI_Barrier(MPI_COMM_WORLD);
 Parallel_correction(mesh, equ, Ap_field, p_field);
 
 matrixToVector(Ap_field, Ap, mesh);
 
 double local_dot_p_Ap = p.dot(Ap);
 double global_dot_p_Ap = 0.0;
+MPI_Barrier(MPI_COMM_WORLD);
 MPI_Allreduce(&local_dot_p_Ap, &global_dot_p_Ap, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 double alpha = global_r_norm / global_dot_p_Ap;
@@ -412,7 +339,7 @@ r -= alpha * Ap;
 
 double new_r_norm = r.squaredNorm();
 double global_new_r_norm = 0.0;
-
+MPI_Barrier(MPI_COMM_WORLD);
 MPI_Allreduce(&new_r_norm, &global_new_r_norm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
 
