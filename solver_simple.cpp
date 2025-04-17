@@ -54,6 +54,34 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 }
 
 
+// 计算压力松弛因子（Pressure Relaxation Factor）
+double computePressureRelaxationFactor(int iter) {
+    double factor;
+
+    if (iter < 60) {
+        factor = 0.01;  // 前 0-1000 次迭代，固定 0.01
+    } else {
+        factor = 0.15;  // 100 次之后，固定 0.25
+    }
+
+    return factor;
+}
+
+
+// 计算速度松弛因子（Momentum Relaxation Factor）
+double computeMomentumRelaxationFactor(int iter) {
+    double factor;
+
+    if (iter < 60) {
+        factor = 0.1;  // 前 0-1000 次迭代，固定 0.01
+    } else   {
+        factor = 0.3;  // 100 次之后，固定 0.25
+    }
+
+    return factor;
+}
+
+
 
 
 
@@ -267,7 +295,7 @@ double mu;
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         
         //8压力修正
-        correct_pressure(mesh,equ_u);
+        correct_pressure(mesh,equ_u,0.01);
        
         //9速度修正
         correct_velocity(mesh,equ_u);

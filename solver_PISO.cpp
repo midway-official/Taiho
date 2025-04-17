@@ -100,6 +100,37 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 
 
 
+/// 计算压力松弛因子（Pressure Relaxation Factor）
+double computePressureRelaxationFactor(int iter) {
+    double factor;
+
+    if (iter < 600) {
+        factor = 0.01;  // 前 0-1000 次迭代，固定 0.01
+    } else {
+        factor = 0.2;  // 100 次之后，固定 0.25
+    }
+
+    return factor;
+}
+
+
+// 计算速度松弛因子（Momentum Relaxation Factor）
+double computeMomentumRelaxationFactor(int iter) {
+    double factor;
+
+    if (iter < 60) {
+        factor = 0.1;  // 前 0-1000 次迭代，固定 0.01
+    } else   {
+        factor = 0.3;  // 100 次之后，固定 0.25
+    }
+
+    return factor;
+}
+
+
+
+
+
 
 int main(int argc, char* argv[]) 
 {    
@@ -228,6 +259,9 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
   
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
+   
+   double alpha_p = 0; // 压力松弛因子
+   int inter=0;
 
 
     //piso算法外循环
@@ -236,7 +270,7 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
        if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
         // 切换到当前编号文件夹
       
-       
+        inter++;
         //piso内循环轮数 矫正2次压力
        int max_outer_iterations=2;
           
@@ -274,10 +308,10 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
        y_v.setZero();
 
        //求解u的动量方程 cg求解器
-      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,15,rank,num_procs,l2_norm_x);
+      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,25,rank,num_procs,l2_norm_x);
       
        //求解v的动量方程 cg求解器
-       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,15,rank,num_procs,l2_norm_y);
+       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,25,rank,num_procs,l2_norm_y);
      
 
        //将解向量写回矩阵场
@@ -337,10 +371,10 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
         
          
                 
-        
- 
+        alpha_p = computePressureRelaxationFactor(inter);
+       
         //压力修正
-        correct_pressure(mesh,equ_u);
+        correct_pressure(mesh,equ_u,alpha_p);
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         
         //速度修正

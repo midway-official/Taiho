@@ -593,7 +593,7 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
 
 
 
-void correct_pressure(Mesh &mesh, Equation &equ_u)
+void correct_pressure(Mesh &mesh, Equation &equ_u,double alpha_p)
 {
     MatrixXd &p = mesh.p;
     MatrixXd &p_star = mesh.p_star;
@@ -615,7 +615,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u)
 
     // 更新压力场
 
-    double alpha_p = 0.01;  // 压力松弛因子
+      // 压力松弛因子
     p_star = p + alpha_p * p_prime;
 }
 
@@ -1056,7 +1056,7 @@ void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu)
     
 }
 
-void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt)
+void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt,double alpha_uv)
 {   
      //-1 压力出口(给定压强)
     //-2 固定速度
@@ -1066,7 +1066,7 @@ void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,dou
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-    double alpha_uv=0.1;
+    
     
     D_e=dy*mu/(dx);
     D_w=dy*mu/(dx);

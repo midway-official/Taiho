@@ -74,7 +74,7 @@ void face_velocity(Mesh &mesh,Equation &equ_u);
 void pressure_function(Mesh &mesh,Equation &equ_p,Equation &equ_u);
 
 //修正压力
-void correct_pressure(Mesh &mesh,Equation &equ_u);
+void correct_pressure(Mesh &mesh,Equation &equ_u,double alpha_p);
 
 
 void correct_velocity(Mesh &mesh,Equation &equ_u);
@@ -87,7 +87,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time);
 //离散动量方程
 
 void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double re);
-void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
+void momentum_function_unsteady(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt,double alpha_uv);
 void momentum_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double dt);
 //竖向分割网格
 vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n);
