@@ -813,7 +813,7 @@ void show_progress_bar(int current_step, int total_steps, double elapsed_time) {
 }
 
 
-void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu)
+void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu,double alpha_uv)
 {   
     //-1 压力出口(给定压强)
     //-2 固定速度
@@ -823,7 +823,7 @@ void momentum_function(Mesh &mesh, Equation &equ_u, Equation &equ_v,double mu)
     int n_x=equ_u.n_x;
     int n_y=equ_u.n_y;
     double D_e,D_w,D_n,D_s,F_e,F_n,F_s,F_w;
-    double alpha_uv=0.05;
+
     
     D_e=dy*mu/(dx);
     D_w=dy*mu/(dx);

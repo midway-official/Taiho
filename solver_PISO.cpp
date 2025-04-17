@@ -374,7 +374,7 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
         alpha_p = computePressureRelaxationFactor(inter);
        
         //压力修正
-        correct_pressure(mesh,equ_u,alpha_p);
+        correct_pressure(mesh,equ_u,0.3);
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         
         //速度修正

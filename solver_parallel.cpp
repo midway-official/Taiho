@@ -60,7 +60,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 double computePressureRelaxationFactor(int iter) {
     double factor;
 
-    if (iter < 60) {
+    if (iter < 15) {
         factor = 0.01;  // 前 0-1000 次迭代，固定 0.01
     } else {
         factor = 0.15;  // 100 次之后，固定 0.25
@@ -74,8 +74,8 @@ double computePressureRelaxationFactor(int iter) {
 double computeMomentumRelaxationFactor(int iter) {
     double factor;
 
-    if (iter < 60) {
-        factor = 0.1;  // 前 0-1000 次迭代，固定 0.01
+    if (iter < 15) {
+        factor = 0.3;  // 前 0-1000 次迭代，固定 0.01
     } else   {
         factor = 0.3;  // 100 次之后，固定 0.25
     }
@@ -201,7 +201,7 @@ double mu;
       
        //记录上一个时间步长的u v
        inter++;
-       int max_outer_iterations=250;
+       int max_outer_iterations=800;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -281,7 +281,7 @@ double mu;
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
       
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,90,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,80,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
       

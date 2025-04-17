@@ -58,7 +58,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 double computePressureRelaxationFactor(int iter) {
     double factor;
 
-    if (iter < 60) {
+    if (iter < 700) {
         factor = 0.01;  // 前 0-1000 次迭代，固定 0.01
     } else {
         factor = 0.15;  // 100 次之后，固定 0.25
@@ -72,10 +72,10 @@ double computePressureRelaxationFactor(int iter) {
 double computeMomentumRelaxationFactor(int iter) {
     double factor;
 
-    if (iter < 60) {
-        factor = 0.1;  // 前 0-1000 次迭代，固定 0.01
+    if (iter < 700) {
+        factor = 0.2;  // 前 0-1000 次迭代，固定 0.01
     } else   {
-        factor = 0.3;  // 100 次之后，固定 0.25
+        factor = 0.25;  // 100 次之后，固定 0.25
     }
 
     return factor;
@@ -204,10 +204,12 @@ double mu;
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
-      
+   double alpha_p = 0; // 压力松弛因子
+   double alpha_uv = 0; // 动量松弛因子
+   int inter=0;
        //记录上一个时间步长的u v
       
-       int max_outer_iterations=400;
+       int max_outer_iterations=1500;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -215,6 +217,9 @@ double mu;
        double init_l2_norm_y = -1.0;
        double init_l2_norm_p = -1.0;
     for(int n=1;n<=max_outer_iterations;n++) {
+
+
+        inter++;
          MPI_Barrier(MPI_COMM_WORLD);
         //1离散动量方程 
         double l2_norm_x, l2_norm_y;
@@ -222,7 +227,9 @@ double mu;
         mesh.v.setZero();
         equ_v.initializeToZero();
         equ_u.initializeToZero();
-        momentum_function(mesh,equ_u,equ_v,mu);
+
+        alpha_uv = computeMomentumRelaxationFactor(inter);
+        momentum_function(mesh,equ_u,equ_v,mu,alpha_uv);
         
         equ_u.build_matrix();
         equ_v.build_matrix();
@@ -236,11 +243,11 @@ double mu;
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         x_v.setZero();
         y_v.setZero();
-       
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,15,rank,num_procs,l2_norm_x);
+     
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,20,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,15,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,20,rank,num_procs,l2_norm_y);
       
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
@@ -272,6 +279,8 @@ double mu;
         
         double epsilon_p=1e-5;
         equ_p.initializeToZero();
+
+
         pressure_function(mesh, equ_p, equ_u);
         
         // 重新更新源项并重建矩阵
@@ -284,18 +293,22 @@ double mu;
         mesh.p_prime.setZero();
 
 
-
+         
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
         
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,130,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,90,rank,num_procs,l2_norm_p);
       
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         
         //8压力修正
-        correct_pressure(mesh,equ_u,0.01);
+
+        alpha_p = computePressureRelaxationFactor(inter);
+
+
+        correct_pressure(mesh,equ_u,alpha_p );
        
         //9速度修正
         correct_velocity(mesh,equ_u);
