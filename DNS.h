@@ -71,7 +71,7 @@ void solve(Equation& equation, double epsilon, double& l2_norm, MatrixXd& phi);
 void face_velocity(Mesh &mesh,Equation &equ_u);
 
 
-void pressure_function(Mesh &mesh,Equation &equ_p,Equation &equ_u);
+void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u);
 
 //修正压力
 void correct_pressure(Mesh &mesh,Equation &equ_u,double alpha_p);

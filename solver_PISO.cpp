@@ -10,6 +10,82 @@ namespace fs = std::filesystem;
 
 
 
+// 读取矩阵数据的辅助函数
+bool loadMatrixFromFile(const std::string& filename, Eigen::MatrixXd& mat) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "无法打开文件: " << filename << std::endl;
+        return false;
+    }
+
+    std::vector<double> values;
+    int rows = 0, cols = -1;
+    std::string line;
+
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::vector<double> row_values;
+        double val;
+        while (iss >> val) {
+            row_values.push_back(val);
+        }
+
+        if (cols == -1) {
+            cols = static_cast<int>(row_values.size());
+        } else if (static_cast<int>(row_values.size()) != cols) {
+            std::cerr << "行列数不一致，文件: " << filename << std::endl;
+            return false;
+        }
+
+        values.insert(values.end(), row_values.begin(), row_values.end());
+        rows++;
+    }
+
+    mat = Eigen::Map<Eigen::MatrixXd>(values.data(), cols, rows).transpose(); // 行优先，转置回来
+    return true;
+}
+
+void loadMeshDataFromSteady(Mesh& mesh, int rank) {
+    std::string steady_folder = "steady";
+
+    // 构建文件名
+    std::string u_filename  = steady_folder + "/u_"  + std::to_string(rank) + ".dat";
+    std::string v_filename  = steady_folder + "/v_"  + std::to_string(rank) + ".dat";
+    std::string p_filename  = steady_folder + "/p_"  + std::to_string(rank) + ".dat";
+    std::string uf_filename = steady_folder + "/uf_" + std::to_string(rank) + ".dat";
+    std::string vf_filename = steady_folder + "/vf_" + std::to_string(rank) + ".dat";
+
+    // 读取到 mesh 对应物理量
+    if (!loadMatrixFromFile(u_filename, mesh.u0)) {
+        std::cerr << "读取 u0 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(u_filename, mesh.u)) {
+        std::cerr << "读取 u0 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(u_filename, mesh.u_star)) {
+        std::cerr << "读取 u0 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(v_filename, mesh.v0)) {
+        std::cerr << "读取 v0 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(v_filename, mesh.v)) {
+        std::cerr << "读取 v0 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(v_filename, mesh.v_star)) {
+        std::cerr << "读取 v0 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(p_filename, mesh.p)) {
+        std::cerr << "读取 p 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(uf_filename, mesh.u_face)) {
+        std::cerr << "读取 u_face 失败" << std::endl;
+    }
+    if (!loadMatrixFromFile(vf_filename, mesh.v_face)) {
+        std::cerr << "读取 v_face 失败" << std::endl;
+    }
+}
+
+
 // 稀疏矩阵条件数估算函数
 double estimateConditionNumber(const Eigen::SparseMatrix<double>& A) {
     typedef Eigen::SparseMatrix<double> SpMat;
@@ -87,7 +163,7 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
         if(!p_file) {
             throw std::runtime_error("无法创建文件: " + p_filename);
         }
-        p_file << mesh.p_star;
+        p_file << mesh.p;
         p_file.close();
 
         //std::cout << "进程 " << rank << " 的数据已保存到文件" << std::endl;
@@ -98,34 +174,6 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 }
 
 
-
-
-/// 计算压力松弛因子（Pressure Relaxation Factor）
-double computePressureRelaxationFactor(int iter) {
-    double factor;
-
-    if (iter < 600) {
-        factor = 0.01;  // 前 0-1000 次迭代，固定 0.01
-    } else {
-        factor = 0.2;  // 100 次之后，固定 0.25
-    }
-
-    return factor;
-}
-
-
-// 计算速度松弛因子（Momentum Relaxation Factor）
-double computeMomentumRelaxationFactor(int iter) {
-    double factor;
-
-    if (iter < 60) {
-        factor = 0.1;  // 前 0-1000 次迭代，固定 0.01
-    } else   {
-        factor = 0.3;  // 100 次之后，固定 0.25
-    }
-
-    return factor;
-}
 
 
 
@@ -243,7 +291,7 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
         mesh.p.setZero();
         mesh.p_prime.setZero();
         mesh.p_star.setZero();
-      
+
    //设置网格参数
    int nx0,ny0;
    nx0=mesh.nx;
@@ -260,8 +308,6 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
   
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
    
-   double alpha_p = 0; // 压力松弛因子
-   int inter=0;
 
 
     //piso算法外循环
@@ -270,9 +316,8 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
        if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
         // 切换到当前编号文件夹
       
-        inter++;
         //piso内循环轮数 矫正2次压力
-       int max_outer_iterations=2;
+       int max_outer_iterations=4;
           
   
         
@@ -308,10 +353,10 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
        y_v.setZero();
 
        //求解u的动量方程 cg求解器
-      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,25,rank,num_procs,l2_norm_x);
+      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,35,rank,num_procs,l2_norm_x);
       
        //求解v的动量方程 cg求解器
-       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,25,rank,num_procs,l2_norm_y);
+       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,35,rank,num_procs,l2_norm_y);
      
 
        //将解向量写回矩阵场
@@ -370,9 +415,7 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
        
         
          
-                
-        alpha_p = computePressureRelaxationFactor(inter);
-       
+
         //压力修正
         correct_pressure(mesh,equ_u,0.3);
         exchangeColumns(mesh.p_prime, rank, num_procs); 
@@ -397,7 +440,10 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
         exchangeColumns(mesh.p, rank, num_procs);
         
         double init_l2_norm_p = -1.0;
-     
+      
+        exchangeColumns(mesh.u_face, rank, num_procs);
+        exchangeColumns(mesh.v_face, rank, num_procs);
+        
        
        // 记录初始残差（仅第一次迭代）
 if (n == 1) {

@@ -590,9 +590,6 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
 }
 
 
-
-
-
 void correct_pressure(Mesh &mesh, Equation &equ_u,double alpha_p)
 {
     MatrixXd &p = mesh.p;

@@ -5,6 +5,7 @@
 #include <eigen3/Eigen/QR>
 #include <eigen3/Eigen/Dense>
 namespace fs = std::filesystem;
+/*
 void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder = "") {
     // 创建文件名
     std::string u_filename = "u_" + std::to_string(rank) + ".dat";
@@ -51,35 +52,105 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
     catch(const std::exception& e) {
         std::cerr << "保存数据时出错: " << e.what() << std::endl;
     }
-}
+}*/
 
+void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder = "") {
+    // 创建基础文件名
+    std::string u_filename = "u_" + std::to_string(rank) + ".dat";
+    std::string v_filename = "v_" + std::to_string(rank) + ".dat";
+    std::string p_filename = "p_" + std::to_string(rank) + ".dat";
+
+    // 如果提供了时间步文件夹，添加路径
+    if(!timestep_folder.empty()) {
+        if (!fs::exists(timestep_folder)) {
+            fs::create_directory(timestep_folder);
+        }
+        u_filename = timestep_folder + "/" + u_filename;
+        v_filename = timestep_folder + "/" + v_filename;
+        p_filename = timestep_folder + "/" + p_filename;
+    }
+
+    try {
+        // 保存 u_star
+        std::ofstream u_file(u_filename);
+        if(!u_file) throw std::runtime_error("无法创建文件: " + u_filename);
+        u_file << mesh.u_star;
+        u_file.close();
+
+        // 保存 v_star
+        std::ofstream v_file(v_filename);
+        if(!v_file) throw std::runtime_error("无法创建文件: " + v_filename);
+        v_file << mesh.v_star;
+        v_file.close();
+
+        // 保存 p_star
+        std::ofstream p_file(p_filename);
+        if(!p_file) throw std::runtime_error("无法创建文件: " + p_filename);
+        p_file << mesh.p;
+        p_file.close();
+
+        // 新建 steady 文件夹（如果不存在）
+        std::string steady_folder = "steady";
+        if (!fs::exists(steady_folder)) {
+            fs::create_directory(steady_folder);
+        }
+
+        // steady 目录下的文件名
+        std::string su_filename = steady_folder + "/u_" + std::to_string(rank) + ".dat";
+        std::string sv_filename = steady_folder + "/v_" + std::to_string(rank) + ".dat";
+        std::string sp_filename = steady_folder + "/p_" + std::to_string(rank) + ".dat";
+        std::string suf_filename = steady_folder + "/uf_" + std::to_string(rank) + ".dat";
+        std::string svf_filename = steady_folder + "/vf_" + std::to_string(rank) + ".dat";
+
+        // 保存 steady/u_star
+        std::ofstream su_file(su_filename);
+        if(!su_file) throw std::runtime_error("无法创建文件: " + su_filename);
+        su_file << mesh.u_star;
+        su_file.close();
+
+        // 保存 steady/v_star
+        std::ofstream sv_file(sv_filename);
+        if(!sv_file) throw std::runtime_error("无法创建文件: " + sv_filename);
+        sv_file << mesh.v_star;
+        sv_file.close();
+
+        // 保存 steady/p_star
+        std::ofstream sp_file(sp_filename);
+        if(!sp_file) throw std::runtime_error("无法创建文件: " + sp_filename);
+        sp_file << mesh.p_star;
+        sp_file.close();
+
+        // 保存 steady/u_face -> uf_rank
+        std::ofstream suf_file(suf_filename);
+        if(!suf_file) throw std::runtime_error("无法创建文件: " + suf_filename);
+        suf_file << mesh.u_face;
+        suf_file.close();
+
+        // 保存 steady/v_face -> vf_rank
+        std::ofstream svf_file(svf_filename);
+        if(!svf_file) throw std::runtime_error("无法创建文件: " + svf_filename);
+        svf_file << mesh.v_face;
+        svf_file.close();
+
+    } catch(const std::exception& e) {
+        std::cerr << "保存数据时出错: " << e.what() << std::endl;
+    }
+}
 
 // 计算压力松弛因子（Pressure Relaxation Factor）
 double computePressureRelaxationFactor(int iter) {
     double factor;
 
     if (iter < 700) {
-        factor = 0.01;  // 前 0-1000 次迭代，固定 0.01
+        factor = 0.05;  // 前 0-1000 次迭代，固定 0.01
     } else {
-        factor = 0.15;  // 100 次之后，固定 0.25
+        factor = 0.1;  // 100 次之后，固定 0.25
     }
 
     return factor;
 }
 
 
-// 计算速度松弛因子（Momentum Relaxation Factor）
-double computeMomentumRelaxationFactor(int iter) {
-    double factor;
-
-    if (iter < 700) {
-        factor = 0.2;  // 前 0-1000 次迭代，固定 0.01
-    } else   {
-        factor = 0.25;  // 100 次之后，固定 0.25
-    }
-
-    return factor;
-}
 
 
 
@@ -179,7 +250,7 @@ double mu;
     mesh.p_star.setZero();
     
     //设置初始场
-   /* mesh.u0.setOnes();
+    mesh.u0.setOnes();
     mesh.v0.setZero();
     mesh.u_star.setOnes();
     mesh.v_star.setZero();
@@ -189,7 +260,7 @@ double mu;
     mesh.v.setZero();
     mesh.p.setZero();
     mesh.p_prime.setZero();
-    mesh.p_star.setZero();*/
+    mesh.p_star.setZero();
     
     
    
@@ -204,8 +275,8 @@ double mu;
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
-   double alpha_p = 0; // 压力松弛因子
-   double alpha_uv = 0; // 动量松弛因子
+   double alpha_p = 0.05; // 压力松弛因子
+   double alpha_uv = 0.3; // 动量松弛因子
    int inter=0;
        //记录上一个时间步长的u v
       
@@ -228,7 +299,7 @@ double mu;
         equ_v.initializeToZero();
         equ_u.initializeToZero();
 
-        alpha_uv = computeMomentumRelaxationFactor(inter);
+        
         momentum_function(mesh,equ_u,equ_v,mu,alpha_uv);
         
         equ_u.build_matrix();
@@ -244,10 +315,10 @@ double mu;
         x_v.setZero();
         y_v.setZero();
      
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,20,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,25,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,20,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,25,rank,num_procs,l2_norm_y);
       
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
@@ -297,19 +368,14 @@ double mu;
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
         
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,90,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,140,rank,num_procs,l2_norm_p);
       
         vectorToMatrix(p_v,mesh.p_prime,mesh);
          
         exchangeColumns(mesh.p_prime, rank, num_procs); 
         
-        //8压力修正
-
-        alpha_p = computePressureRelaxationFactor(inter);
-
-
-        correct_pressure(mesh,equ_u,alpha_p );
-       
+     
+        correct_pressure(mesh,equ_u,alpha_p);
         //9速度修正
         correct_velocity(mesh,equ_u);
        
@@ -317,9 +383,13 @@ double mu;
         
         //10更新压力
         mesh.p=mesh.p_star;
-         
-      
-       
+        //交换数值
+        exchangeColumns(mesh.p, rank, num_procs);
+        exchangeColumns(mesh.u, rank, num_procs);
+        exchangeColumns(mesh.v, rank, num_procs);
+        exchangeColumns(mesh.u_face, rank, num_procs);
+        exchangeColumns(mesh.v_face, rank, num_procs);
+
        // 记录初始残差（仅第一次迭代）
 if (n == 1) {
     init_l2_norm_x = l2_norm_x;
