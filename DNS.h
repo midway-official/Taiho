@@ -93,4 +93,6 @@ void momentum_function_PISO(Mesh &mesh, Equation &equ_u, Equation &equ_v,double 
 vector<Mesh> splitMeshVertically(const Mesh& original_mesh, int n);
 //合并网格
 Mesh mergeMeshesWithoutInterface(const std::vector<Mesh>& sub_meshes);
+
+void readParams(const std::string& folderPath, double& dx, double& dy);
 #endif // DNS_H

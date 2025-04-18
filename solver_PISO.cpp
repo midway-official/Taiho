@@ -246,7 +246,11 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
-    
+    readParams(mesh_folder, dx, dy);
+
+    // 同步 dx 和 dy 给所有进程
+    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);  
+    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     // 垂直分割网格
     std::vector<Mesh> sub_meshes = splitMeshVertically(original_mesh, n_splits);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -302,8 +306,7 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
-    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
     //残差初始化
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
   

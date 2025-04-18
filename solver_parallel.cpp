@@ -222,6 +222,12 @@ double mu;
     // 初始化MPI环境
     MPI_Init(&argc, &argv);
     MPI_Barrier(MPI_COMM_WORLD);
+
+    readParams(mesh_folder, dx, dy);
+
+    // 同步 dx 和 dy 给所有进程
+    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     // 获取进程信息
     int rank, num_procs;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -311,8 +317,7 @@ double mu;
         double epsilon_uv=0.01;
        
              // 同步 dx 和 dy 给所有进程
-    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         x_v.setZero();
         y_v.setZero();
@@ -368,7 +373,7 @@ double mu;
       
 
         //求解压力修正方程
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,100,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,140,rank,num_procs,l2_norm_p);
      
         vectorToMatrix(p_v,mesh.p_prime,mesh);
        

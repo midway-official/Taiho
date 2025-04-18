@@ -157,8 +157,6 @@ double computePressureRelaxationFactor(int iter) {
 
 
 
-
-
 int main(int argc, char* argv[]) 
 {    
     // 获取输入参数
@@ -200,6 +198,13 @@ double mu;
      // 初始化MPI环境
      MPI_Init(&argc, &argv);
      MPI_Barrier(MPI_COMM_WORLD);
+     readParams(mesh_folder, dx, dy);
+
+             // 同步 dx 和 dy 给所有进程
+     MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+     MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+
 
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
@@ -280,12 +285,12 @@ double mu;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
    double alpha_p = 0.05; // 压力松弛因子
-   double alpha_uv = 0.2; // 动量松弛因子
+   double alpha_uv = 0.3; // 动量松弛因子
 
    int inter=0;
        //记录上一个时间步长的u v
       
-       int max_outer_iterations=1500;
+       int max_outer_iterations=3000;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -315,9 +320,7 @@ double mu;
          //3求解线性方程组
         double epsilon_uv=0.01;
        
-             // 同步 dx 和 dy 给所有进程
-    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         x_v.setZero();
         y_v.setZero();

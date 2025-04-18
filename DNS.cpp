@@ -1684,3 +1684,31 @@ Mesh mergeMeshesWithoutInterface(const std::vector<Mesh>& sub_meshes) {
    
     return merged_mesh;
 }
+
+void readParams(const std::string& folderPath, double& dx, double& dy) {
+    std::string filePath = folderPath + "/params.txt";
+    std::ifstream file(filePath);
+
+    if (!file.is_open()) {
+        std::cerr << "无法打开文件: " << filePath << std::endl;
+        return;
+    }
+
+    std::string line;
+    // 先读掉第一行
+    std::getline(file, line);
+
+    // 再读第二行
+    if (std::getline(file, line)) {
+        std::istringstream iss(line);
+        if (!(iss >> dx >> dy)) {
+            std::cerr << "读取 dx 和 dy 失败，检查第二行格式" << std::endl;
+        }
+    } else {
+        std::cerr << "文件内容不足，缺少第二行" << std::endl;
+    }
+
+    file.close();
+}
+
+
