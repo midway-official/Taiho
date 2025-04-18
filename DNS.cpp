@@ -384,8 +384,6 @@ void solve(Equation& equation, double epsilon, double& l2_norm, MatrixXd& phi){
     }
 }
 
-
-
 void face_velocity(Mesh& mesh, Equation& equ_u) {
     MatrixXd& u_face = mesh.u_face;
     MatrixXd& v_face = mesh.v_face;
@@ -394,115 +392,82 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
     MatrixXd& v = mesh.v;
     MatrixXd& p = mesh.p;
     MatrixXd& A_p = equ_u.A_p;
-    
-    
-    
+
     // 遍历 u_face (ny + 2, nx + 1)
     for(int i = 0; i <= mesh.ny + 1; i++) {
         for(int j = 0; j <= mesh.nx; j++) {
-             
-             
 
+            if ( (bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
+                 (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
+                 (bctype(i,j) == -3 && bctype(i,j+1) == 0) ) {
 
+                if (bctype(i,j+2)==-2) p(i,j+2)=p(i,j+1);
+                else if (bctype(i,j-1)==-2) p(i,j-1)=p(i,j);
+                else if (bctype(i,j+2)==-1) p(i,j+2)=0;
+                else if (bctype(i,j-1)==-1) p(i,j-1)=0;
 
-            if( ((bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
- (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
- (bctype(i,j) == -3 && bctype(i,j+1) == 0))) {
-                 if (bctype(i,j+2)==-2)
-             {
-                p(i,j+2)=p(i,j+1);
-             }
-             if (bctype(i,j-1)==-2)
-             {
-                p(i,j-1)=p(i,j);
-             }
-             if (bctype(i,j+2)==-1)
-             {
-                p(i,j+2)=0;
-             }
-             if (bctype(i,j-1)==-1)
-             {
-                p(i,j-1)=0;
-             }
                 u_face(i,j) = 0.5*(u(i,j) + u(i,j+1))
-                    + 0.25*(p(i,j+1) - p(i,j-1))*dy*dx/A_p(i,j)*dx 
-                    + 0.25*(p(i,j+2) - p(i,j))*dy*dx/A_p(i,j+1)*dx
-                    - 0.5*(1/A_p(i,j) + 1/A_p(i,j+1))*(p(i,j+1) - p(i,j))*dy*dx/dx;
+                    + 0.25*(p(i,j+1) - p(i,j-1)) * dy * dx / A_p(i,j) * dx 
+                    + 0.25*(p(i,j+2) - p(i,j)) * dy * dx / A_p(i,j+1) * dx
+                    - 0.5*(1.0/A_p(i,j) + 1.0/A_p(i,j+1)) * (p(i,j+1) - p(i,j)) * dy * dx / dx;
             }
-         
-            if( (bctype(i,j) == 0 && bctype(i,j+1) == -1 ) ){
-                u_face(i,j)=u(i,j);
-             
-                
-              }
-            if( (bctype(i,j) == -1 && bctype(i,j+1) == 0 ) ){
-                u_face(i,j)=u(i,j+1);
-                
 
-              }    
-            if( (bctype(i,j) == 0 && bctype(i,j+1) == -2 ) ){
-                    u_face(i,j)=mesh.zoneu[mesh.zoneid(i,j+1)];
-                    
-                  }
-                if( (bctype(i,j) == -2 && bctype(i,j+1) == 0 ) ){
-                    u_face(i,j)=mesh.zoneu[mesh.zoneid(i,j)];
-                    
-  
-                  }  
+            else if (bctype(i,j) == 0 && bctype(i,j+1) == -1) {
+                u_face(i,j) = u(i,j);
+            }
+
+            else if (bctype(i,j) == -1 && bctype(i,j+1) == 0) {
+                u_face(i,j) = u(i,j+1);
+            }
+
+            else if (bctype(i,j) == 0 && bctype(i,j+1) == -2) {
+                u_face(i,j) = mesh.zoneu[mesh.zoneid(i,j+1)];
+            }
+
+            else if (bctype(i,j) == -2 && bctype(i,j+1) == 0) {
+                u_face(i,j) = mesh.zoneu[mesh.zoneid(i,j)];
+            }
+
         }
     }
-    
+
     // 遍历 v_face (ny + 1, nx + 2)
     for(int i = 0; i <= mesh.ny; i++) {
         for(int j = 0; j <= mesh.nx + 1; j++) {
-            if((bctype(i,j) == 0 )&&(   bctype(i+1,j) ==0)) {
-                if (bctype(i+2,j)==-2)
-                {
-                   p(i+2,j)=p(i+1,j);
-                }
-                if (bctype(i-1,j)==-2)
-                {
-                   p(i-1,j)=p(i,j);
-                }
-                if (bctype(i+2,j)==-1)
-                {
-                   p(i+2,j)=0;
-                }
-                if (bctype(i-1,j)==-1)
-                {
-                   p(i-1,j)=0;
-                }
+
+            if (bctype(i,j) == 0 && bctype(i+1,j) == 0) {
+
+                if (bctype(i+2,j)==-2) p(i+2,j)=p(i+1,j);
+                else if (bctype(i-1,j)==-2) p(i-1,j)=p(i,j);
+                else if (bctype(i+2,j)==-1) p(i+2,j)=0;
+                else if (bctype(i-1,j)==-1) p(i-1,j)=0;
+
                 v_face(i,j) = 0.5*(v(i+1,j) + v(i,j))
-                    + 0.25*(p(i,j) - p(i+2,j))*dx/A_p(i+1,j)
-                    + 0.25*(p(i-1,j) - p(i+1,j))*dx/A_p(i,j)
-                    - 0.5*(1/A_p(i+1,j) + 1/A_p(i,j))*(p(i,j) - p(i+1,j))*dx;
+                    + 0.25*(p(i,j) - p(i+2,j)) * dx / A_p(i+1,j)
+                    + 0.25*(p(i-1,j) - p(i+1,j)) * dx / A_p(i,j)
+                    - 0.5*(1.0/A_p(i+1,j) + 1.0/A_p(i,j)) * (p(i,j) - p(i+1,j)) * dx;
             }
-            
 
-            if( (bctype(i,j) == 0 && bctype(i+1,j) == -2 ) ){
-                v_face(i,j)=mesh.zonev[mesh.zoneid(i+1,j)];
-                
-              }
-            if( (bctype(i,j) == -2 && bctype(i+1,j) == 0 ) ){
-                v_face(i,j)=mesh.zonev[mesh.zoneid(i,j)];
-                
+            else if (bctype(i,j) == 0 && bctype(i+1,j) == -2) {
+                v_face(i,j) = mesh.zonev[mesh.zoneid(i+1,j)];
+            }
 
-              }
-         if( (bctype(i,j) == 0 && bctype(i+1,j) == -1 ) ){
-            v_face(i,j)=v(i,j);
-            
-          }
-        if( (bctype(i,j) == -1 && bctype(i+1,j) == 0 ) ){
-            v_face(i,j)=v(i+1,j);
-            
-          }
+            else if (bctype(i,j) == -2 && bctype(i+1,j) == 0) {
+                v_face(i,j) = mesh.zonev[mesh.zoneid(i,j)];
+            }
 
+            else if (bctype(i,j) == 0 && bctype(i+1,j) == -1) {
+                v_face(i,j) = v(i,j);
+            }
+
+            else if (bctype(i,j) == -1 && bctype(i+1,j) == 0) {
+                v_face(i,j) = v(i+1,j);
+            }
+
+        }
     }
 }
 
-
-
-}     
 
 
 
@@ -603,9 +568,9 @@ void correct_pressure(Mesh &mesh, Equation &equ_u,double alpha_p)
  
     for(int i = 0; i <= n_y + 1; i++) {
         for(int j = 0; j <= n_x + 1; j++) {
-            if(bctype(i,j) > 0) {  // 边界点
+            if(bctype(i,j) != 0 && bctype(i,j) != -3) {  // 边界点
                 
-                    p(i,j) = 0;
+                    p_prime(i,j) = 0;
                 }
             }
         }

@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <vector>
-#include "mpi.h"
+
 
 using namespace Eigen;
 using namespace std;

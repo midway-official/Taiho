@@ -310,18 +310,21 @@ double mu;
          //3求解线性方程组
         double epsilon_uv=0.01;
        
+             // 同步 dx 和 dy 给所有进程
+    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
         x_v.setZero();
         y_v.setZero();
      
        CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,25,rank,num_procs,l2_norm_x);
         
-       
+        
         CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,25,rank,num_procs,l2_norm_y);
-       
+      
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
-     
+       
         
 
 
@@ -329,69 +332,66 @@ double mu;
 
       
         
-       
+         
 
        
         exchangeColumns(mesh.u, rank, num_procs);
-        
+    
         exchangeColumns(mesh.v, rank, num_procs);
-        
+
         exchangeColumns(equ_u.A_p, rank, num_procs);
+         
        
-       
-        //4速度插值到面
+        //cell中心速度插值到面 动量插值
         face_velocity(mesh ,equ_u);
-     
-        exchangeColumns(mesh.u_face, rank, num_procs);
         
-        exchangeColumns(mesh.v_face, rank, num_procs);
-        
-        
+        MPI_Barrier(MPI_COMM_WORLD);
+
         double epsilon_p=1e-5;
+
+        //初始化压力修正方程
         equ_p.initializeToZero();
+
+        //离散压力修正方程
         pressure_function(mesh, equ_p, equ_u);
-        
-        // 重新更新源项并重建矩阵
+       
+        // 组装压力修正方程
         equ_p.build_matrix();
-        //求解
-
-        
-        
-        
-        mesh.p_prime.setZero();
-        mesh.p_star.setZero();
-
-
+        //求解压力修正方程
         VectorXd p_v(mesh.internumber);
+
+        //初始压力修正场
+        mesh.p_prime.setZero();
+
+
         p_v.setZero();
       
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,90,rank,num_procs,l2_norm_p);
-        
+
+        //求解压力修正方程
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,100,rank,num_procs,l2_norm_p);
+     
         vectorToMatrix(p_v,mesh.p_prime,mesh);
-      
-       
-        exchangeColumns(mesh.p_prime, rank, num_procs); 
-        
-
        
         
-        //8压力修正
-        correct_pressure(mesh,equ_u,alpha_p);
-
-        //9速度修正
-        correct_velocity(mesh,equ_u);
-      
+         MPI_Barrier(MPI_COMM_WORLD);
+         exchangeColumns(mesh.p_prime, rank, num_procs); 
+         MPI_Barrier(MPI_COMM_WORLD);
+        //压力修正
+         correct_pressure(mesh,equ_u,alpha_p);
         
         
-        //10更新压力
-        mesh.p=mesh.p_star;
-        //交换压力数值
+        //速度修正
+         correct_velocity(mesh,equ_u);
+       
+        
+        
+        //更新压力 速度 并交换数值
+        mesh.p = mesh.p_star;
+        
+        
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.p, rank, num_procs);
-        
-        
-       
-  
-       
+        MPI_Barrier(MPI_COMM_WORLD);
        // 记录初始残差（仅第一次迭代）
 if (n == 1) {
     init_l2_norm_x = l2_norm_x;

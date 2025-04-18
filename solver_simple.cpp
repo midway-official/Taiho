@@ -322,10 +322,10 @@ double mu;
         x_v.setZero();
         y_v.setZero();
      
-       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,15,rank,num_procs,l2_norm_x);
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,25,rank,num_procs,l2_norm_x);
         
         
-        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,15,rank,num_procs,l2_norm_y);
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,25,rank,num_procs,l2_norm_y);
       
         vectorToMatrix(x_v,mesh.u,mesh);
         vectorToMatrix(y_v,mesh.v,mesh);
@@ -351,7 +351,7 @@ double mu;
         face_velocity(mesh ,equ_u);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        
+
         double epsilon_p=1e-5;
 
         //初始化压力修正方程
@@ -378,14 +378,15 @@ double mu;
         vectorToMatrix(p_v,mesh.p_prime,mesh);
        
         
-         
-        exchangeColumns(mesh.p_prime, rank, num_procs); 
+         MPI_Barrier(MPI_COMM_WORLD);
+         exchangeColumns(mesh.p_prime, rank, num_procs); 
+         MPI_Barrier(MPI_COMM_WORLD);
         //压力修正
-        correct_pressure(mesh,equ_u,0.3);
+         correct_pressure(mesh,equ_u,0.3);
         
         
         //速度修正
-       correct_velocity(mesh,equ_u);
+         correct_velocity(mesh,equ_u);
        
         
         
@@ -393,9 +394,9 @@ double mu;
         mesh.p = mesh.p_star;
         
         
-  
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.p, rank, num_procs);
-        
+        MPI_Barrier(MPI_COMM_WORLD);
         double init_l2_norm_p = -1.0;
       
     

@@ -302,7 +302,8 @@ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
-
+    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     //残差初始化
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
   

@@ -1,5 +1,5 @@
 #include "parallel.h"
-#include <omp.h>
+
 
 // 定义全局变量
 double total_comm_time = 0.0; // 通信时间
@@ -54,7 +54,7 @@ void recvMatrixColumnWithSafety(vector<double>& recv_buffer, int src_rank, int t
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 }
-
+/*
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
     const int cols = matrix.cols();
@@ -111,11 +111,11 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
             matrix(i, cols - 1) = recv_right_1[i];
         }
     }
-}
+}*/
 
 
 
-/*
+
 //超高性能的列交换函数
 void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
     const int rows = matrix.rows();
@@ -187,7 +187,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         MPI_Request_free(&requests[i]);
     }
     MPI_Comm_free(&cart_comm);
-}*/
+}
 
 
 // 从解向量转换为场矩阵
