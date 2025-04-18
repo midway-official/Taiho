@@ -152,33 +152,7 @@ double computePressureRelaxationFactor(int iter) {
 
 
 
-void readMeshSpacing(const std::string &mesh_folder, double &dx, double &dy) {
-    std::string filename = mesh_folder + "/params.txt";
-    std::ifstream infile(filename);
-    
-    if (!infile.is_open()) {
-        throw std::runtime_error("无法打开文件: " + filename);
-    }
 
-    std::string line;
-    int line_number = 0;
-
-    while (std::getline(infile, line)) {
-        line_number++;
-
-        if (line_number == 2) {
-            std::istringstream iss(line);
-            if (!(iss >> dx >> dy)) {
-                throw std::runtime_error("读取 dx 和 dy 失败，检查 param.txt 格式是否正确");
-            }
-            break;
-        }
-    }
-
-    if (line_number < 2) {
-        throw std::runtime_error("param.txt 行数不足，至少需要两行");
-    }
-}
 
 
 
@@ -264,7 +238,7 @@ double mu;
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
 
-    readMeshSpacing(mesh_folder, dx, dy);
+   
     //test
     //初始化
     mesh.u0.setZero();
@@ -399,19 +373,19 @@ double mu;
       
 
         //求解压力修正方程
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,140,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,100,rank,num_procs,l2_norm_p);
      
         vectorToMatrix(p_v,mesh.p_prime,mesh);
        
         
          
-
+        exchangeColumns(mesh.p_prime, rank, num_procs); 
         //压力修正
         correct_pressure(mesh,equ_u,0.3);
-        exchangeColumns(mesh.p_prime, rank, num_procs); 
+        
         
         //速度修正
-        correct_velocity(mesh,equ_u);
+       correct_velocity(mesh,equ_u);
        
         
         

@@ -274,7 +274,7 @@ double mu;
 
 
    double alpha_p = 0.1; // 压力松弛因子
-   double alpha_uv = 0.5; // 动量松弛因子
+   double alpha_uv = 0.3; // 动量松弛因子
    int inter=0;
 
 
@@ -365,7 +365,7 @@ double mu;
         VectorXd p_v(mesh.internumber);
         p_v.setZero();
       
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,150,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-6,90,rank,num_procs,l2_norm_p);
         
         vectorToMatrix(p_v,mesh.p_prime,mesh);
       
