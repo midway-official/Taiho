@@ -407,9 +407,9 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
                 else if (bctype(i,j-1)==-1) p(i,j-1)=0;
 
                 u_face(i,j) = 0.5*(u(i,j) + u(i,j+1))
-                    + 0.25*(p(i,j+1) - p(i,j-1)) * dy * dx / A_p(i,j) * dx 
-                    + 0.25*(p(i,j+2) - p(i,j)) * dy * dx / A_p(i,j+1) * dx
-                    - 0.5*(1.0/A_p(i,j) + 1.0/A_p(i,j+1)) * (p(i,j+1) - p(i,j)) * dy * dx / dx;
+                    + 0.25*(p(i,j+1) - p(i,j-1)) * dy / A_p(i,j)  
+                    + 0.25*(p(i,j+2) - p(i,j)) * dy / A_p(i,j+1) 
+                    - 0.5*(1.0/A_p(i,j) + 1.0/A_p(i,j+1)) * (p(i,j+1) - p(i,j)) * dy;
             }
 
             else if (bctype(i,j) == 0 && bctype(i,j+1) == -1) {
@@ -568,7 +568,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u,double alpha_p)
  
     for(int i = 0; i <= n_y + 1; i++) {
         for(int j = 0; j <= n_x + 1; j++) {
-            if(bctype(i,j) != 0 && bctype(i,j) != -3) {  // 边界点
+            if(bctype(i,j) > 0) {  // 边界点
                 
                     p_prime(i,j) = 0;
                 }
@@ -579,7 +579,7 @@ void correct_pressure(Mesh &mesh, Equation &equ_u,double alpha_p)
     // 更新压力场
     
       // 压力松弛因子
-   mesh.p_star = mesh.p + alpha_p * mesh.p_prime;
+p_star =p + alpha_p *p_prime;
 }
 
 void correct_velocity(Mesh &mesh, Equation &equ_u)
