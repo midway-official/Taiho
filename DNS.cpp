@@ -393,80 +393,78 @@ void face_velocity(Mesh& mesh, Equation& equ_u) {
     MatrixXd& p = mesh.p;
     MatrixXd& A_p = equ_u.A_p;
 
-    // 遍历 u_face (ny + 2, nx + 1)
     for(int i = 0; i <= mesh.ny + 1; i++) {
         for(int j = 0; j <= mesh.nx; j++) {
+            if ((bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
+                (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
+                (bctype(i,j) == -3 && bctype(i,j+1) == 0)) {
 
-            if ( (bctype(i,j) == 0 && bctype(i,j+1) == 0) || 
-                 (bctype(i,j) == 0 && bctype(i,j+1) == -3) ||
-                 (bctype(i,j) == -3 && bctype(i,j+1) == 0) ) {
-
-                if (bctype(i,j+2)==-2) p(i,j+2)=p(i,j+1);
-                else if (bctype(i,j-1)==-2) p(i,j-1)=p(i,j);
-                else if (bctype(i,j+2)==-1) p(i,j+2)=0;
-                else if (bctype(i,j-1)==-1) p(i,j-1)=0;
+                if (bctype(i,j+2) == -2) p(i,j+2) = p(i,j+1);
+                else if (bctype(i,j-1) == -2) p(i,j-1) = p(i,j);
+                else if (bctype(i,j+2) == -1) p(i,j+2) = 0;
+                else if (bctype(i,j-1) == -1) p(i,j-1) = 0;
 
                 u_face(i,j) = 0.5*(u(i,j) + u(i,j+1))
-                    + 0.25*(p(i,j+1) - p(i,j-1)) * dy / A_p(i,j)  
-                    + 0.25*(p(i,j+2) - p(i,j)) * dy / A_p(i,j+1) 
-                    - 0.5*(1.0/A_p(i,j) + 1.0/A_p(i,j+1)) * (p(i,j+1) - p(i,j)) * dy;
+                            + 0.25*(p(i,j+1) - p(i,j-1)) * dy / A_p(i,j)
+                            + 0.25*(p(i,j+2) - p(i,j)) * dy / A_p(i,j+1)
+                            - 0.5*(1.0/A_p(i,j) + 1.0/A_p(i,j+1)) * (p(i,j+1) - p(i,j)) * dy;
             }
-
             else if (bctype(i,j) == 0 && bctype(i,j+1) == -1) {
                 u_face(i,j) = u(i,j);
             }
-
             else if (bctype(i,j) == -1 && bctype(i,j+1) == 0) {
                 u_face(i,j) = u(i,j+1);
             }
-
             else if (bctype(i,j) == 0 && bctype(i,j+1) == -2) {
                 u_face(i,j) = mesh.zoneu[mesh.zoneid(i,j+1)];
             }
-
             else if (bctype(i,j) == -2 && bctype(i,j+1) == 0) {
                 u_face(i,j) = mesh.zoneu[mesh.zoneid(i,j)];
             }
+            else {
+                u_face(i,j) = 0.0;
+            }
 
+            // NaN 检查
+            if (std::isnan(u_face(i,j))) u_face(i,j) = 0.0;
         }
     }
 
-    // 遍历 v_face (ny + 1, nx + 2)
     for(int i = 0; i <= mesh.ny; i++) {
         for(int j = 0; j <= mesh.nx + 1; j++) {
-
             if (bctype(i,j) == 0 && bctype(i+1,j) == 0) {
-
-                if (bctype(i+2,j)==-2) p(i+2,j)=p(i+1,j);
-                else if (bctype(i-1,j)==-2) p(i-1,j)=p(i,j);
-                else if (bctype(i+2,j)==-1) p(i+2,j)=0;
-                else if (bctype(i-1,j)==-1) p(i-1,j)=0;
+                if (bctype(i+2,j) == -2) p(i+2,j) = p(i+1,j);
+                else if (bctype(i-1,j) == -2) p(i-1,j) = p(i,j);
+                else if (bctype(i+2,j) == -1) p(i+2,j) = 0;
+                else if (bctype(i-1,j) == -1) p(i-1,j) = 0;
 
                 v_face(i,j) = 0.5*(v(i+1,j) + v(i,j))
-                    + 0.25*(p(i,j) - p(i+2,j)) * dx / A_p(i+1,j)
-                    + 0.25*(p(i-1,j) - p(i+1,j)) * dx / A_p(i,j)
-                    - 0.5*(1.0/A_p(i+1,j) + 1.0/A_p(i,j)) * (p(i,j) - p(i+1,j)) * dx;
+                            + 0.25*(p(i,j) - p(i+2,j)) * dx / A_p(i+1,j)
+                            + 0.25*(p(i-1,j) - p(i+1,j)) * dx / A_p(i,j)
+                            - 0.5*(1.0/A_p(i+1,j) + 1.0/A_p(i,j)) * (p(i,j) - p(i+1,j)) * dx;
             }
-
             else if (bctype(i,j) == 0 && bctype(i+1,j) == -2) {
                 v_face(i,j) = mesh.zonev[mesh.zoneid(i+1,j)];
             }
-
             else if (bctype(i,j) == -2 && bctype(i+1,j) == 0) {
                 v_face(i,j) = mesh.zonev[mesh.zoneid(i,j)];
             }
-
             else if (bctype(i,j) == 0 && bctype(i+1,j) == -1) {
                 v_face(i,j) = v(i,j);
             }
-
             else if (bctype(i,j) == -1 && bctype(i+1,j) == 0) {
                 v_face(i,j) = v(i+1,j);
             }
+            else {
+                v_face(i,j) = 0.0;
+            }
 
+            // NaN 检查
+            if (std::isnan(v_face(i,j))) v_face(i,j) = 0.0;
         }
     }
 }
+
 
 
 
@@ -546,10 +544,10 @@ void pressure_function(Mesh &mesh, Equation &equ_p, Equation &equ_u)
 
                 // 设置中心系数和源项
                 Ap_p(i,j) = Ap_temp;
+                source_p[n]=0;
                 
-                source_temp += -(u_face(i,j) - u_face(i,j-1))*dy 
-                             - (v_face(i-1,j) - v_face(i,j))*dx;
-                source_p[n]=   source_temp ;          
+                source_p[n] +=   -(u_face(i,j) - u_face(i,j-1))*dy 
+                - (v_face(i-1,j) - v_face(i,j))*dx;         
             }
         }
     }

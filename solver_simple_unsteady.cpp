@@ -4,9 +4,9 @@
 #include "parallel.h"
 #include <eigen3/Eigen/QR>
 #include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/Sparse>
-#include <eigen3/Eigen/SparseLU>
 namespace fs = std::filesystem;
+
+
 
 
 
@@ -86,44 +86,6 @@ void loadMeshDataFromSteady(Mesh& mesh, int rank) {
 }
 
 
-// 稀疏矩阵条件数估算函数
-double estimateConditionNumber(const Eigen::SparseMatrix<double>& A) {
-    typedef Eigen::SparseMatrix<double> SpMat;
-    typedef Eigen::VectorXd Vec;
-
-    // 先求矩阵范数：这里用最大行和范数（infinity norm）
-    double normA = 0.0;
-    for (int i = 0; i < A.rows(); ++i) {
-        double rowSum = 0.0;
-        for (SpMat::InnerIterator it(A, i); it; ++it) {
-            rowSum += std::abs(it.value());
-        }
-        normA = std::max(normA, rowSum);
-    }
-
-    // 用SparseLU求逆矩阵Ax=b的解，来近似求A逆的范数
-    Eigen::SparseLU<SpMat> solver;
-    solver.compute(A);
-    if (solver.info() != Eigen::Success) {
-        std::cerr << "矩阵分解失败，无法估算条件数" << std::endl;
-        return -1.0;
-    }
-
-    // b为全1向量
-    Vec b = Vec::Ones(A.rows());
-    Vec x = solver.solve(b);
-    if (solver.info() != Eigen::Success) {
-        std::cerr << "求解失败，无法估算条件数" << std::endl;
-        return -1.0;
-    }
-
-    // 求A逆范数（用解向量x的无穷范数近似）
-    double normInvA = x.lpNorm<Eigen::Infinity>();
-
-    // 条件数估算
-    double cond = normA * normInvA;
-    return cond;
-}
 
 void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder = "") {
     // 创建文件名
@@ -176,73 +138,78 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 
 
 
-
-
-
-
 int main(int argc, char* argv[]) 
 {    
-    MPI_Init(&argc, &argv);
-     // 获取进程信息
-     int rank, num_procs;
-     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-   // 获取输入参数，只在 rank 0 上执行
+    // 获取输入参数
 std::string mesh_folder;
 double dt;
 int timesteps;
-int n_splits;
+    int n_splits;  // 并行计算线程数
 double mu;
 
-if (rank == 0) {
-    if (argc == 6) {
+    if(argc == 6) {
         // 命令行参数输入
         mesh_folder = argv[1];
         dt = std::stod(argv[2]);
         timesteps = std::stoi(argv[3]);
-        mu = std::stod(argv[4]);
+        mu= std::stod(argv[4]);
         n_splits = std::stoi(argv[5]);
-
         std::cout << "从命令行读取参数:" << std::endl;
         std::cout << "网格文件夹: " << mesh_folder << std::endl;
         std::cout << "时间步长: " << dt << std::endl;
         std::cout << "时间步数: " << timesteps << std::endl;
         std::cout << "并行线程数: " << n_splits << std::endl;
         std::cout << "粘度: " << mu << std::endl;
-    } else {
+
+    }
+    else {
         // 手动输入
-        std::cout << "网格文件夹路径: ";
+        std::cout << "网格文件夹路径:";
         std::cin >> mesh_folder;
-        std::cout << "时间步长: ";
+        std::cout << "时间步长:";
         std::cin >> dt;
-        std::cout << "时间步数: ";
+        std::cout << "时间步长数:";
         std::cin >> timesteps;
-        std::cout << "并行线程数: ";
+        std::cout << "并行线程数:";
         std::cin >> n_splits;
-        std::cout << "粘度: ";
+        std::cout << "粘度:";
         std::cin >> mu;
     }
-}
 
-// 同步字符串长度
-int folder_length;
-if (rank == 0) folder_length = mesh_folder.size();
-MPI_Bcast(&folder_length, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    
 
-// 同步字符串内容
-char* folder_cstr = new char[folder_length + 1];
-if (rank == 0) strcpy(folder_cstr, mesh_folder.c_str());
-MPI_Bcast(folder_cstr, folder_length + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
-if (rank != 0) mesh_folder = std::string(folder_cstr);
-delete[] folder_cstr;
-
-// 广播参数
-MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-MPI_Bcast(&timesteps, 1, MPI_INT, 0, MPI_COMM_WORLD);
-MPI_Bcast(&mu, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-// 检查浮点变量是否一致（dx, dy, dt, mu）
+    // 初始化MPI环境
+    MPI_Init(&argc, &argv);
+     // 获取进程信息
+     int rank, num_procs;
+     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+     //读取全局变量dx dy
+      readParams(mesh_folder, dx, dy);
+ 
+              // 同步 dx 和 dy 给所有进程
+      MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+      MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+ 
+ 
+     // 同步字符串长度
+ int folder_length;
+ if (rank == 0) folder_length = mesh_folder.size();
+ MPI_Bcast(&folder_length, 1, MPI_INT, 0, MPI_COMM_WORLD);
+ 
+ // 同步字符串内容
+ char* folder_cstr = new char[folder_length + 1];
+ if (rank == 0) strcpy(folder_cstr, mesh_folder.c_str());
+ MPI_Bcast(folder_cstr, folder_length + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
+ if (rank != 0) mesh_folder = std::string(folder_cstr);
+ delete[] folder_cstr;
+ 
+ // 广播参数
+ MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+ MPI_Bcast(&timesteps, 1, MPI_INT, 0, MPI_COMM_WORLD);
+ MPI_Bcast(&mu, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+ MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
+ // 检查浮点变量是否一致（dx, dy, dt, mu）
 double local_vals[4] = { dx, dy, dt, mu };
 double global_max[4], global_min[4];
 
@@ -308,28 +275,19 @@ delete[] local_str;
 delete[] all_strings;
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
-    readParams(mesh_folder, dx, dy);
-
-    // 同步 dx 和 dy 给所有进程
-    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);  
-    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    
     // 垂直分割网格
     std::vector<Mesh> sub_meshes = splitMeshVertically(original_mesh, n_splits);
-    MPI_Barrier(MPI_COMM_WORLD);
-    // 打印分割信息
     if (rank==0)
     {
-        std::cout << "网格已分割为 " << n_splits << " 个子网格:" << std::endl;
+        // 打印分割信息
+    // 打印分割信息
+    std::cout << "网格已分割为 " << n_splits << " 个子网格:" << std::endl;
     for(int i = 0; i < sub_meshes.size(); i++) {
         std::cout << "子网格 " << i << " 尺寸: " 
                   << sub_meshes[i].nx << "x" << sub_meshes[i].ny << std::endl;
     }
-    }
-    
-    
-    
-    MPI_Barrier(MPI_COMM_WORLD);
-    MPI_Barrier(MPI_COMM_WORLD);
+}
    
 
     // 检查进程数是否匹配
@@ -345,125 +303,117 @@ delete[] all_strings;
 
     // 每个进程获取对应的子网格
     Mesh mesh = sub_meshes[rank];
-        //初始化 默认初始化为全0场
-        mesh.u0.setZero();
-        mesh.v0.setZero();
-        mesh.u_star.setZero();
-        mesh.v_star.setZero();
-        mesh.u_face.setZero();
-        mesh.v_face.setZero(); 
-        mesh.u.setZero();
-        mesh.v.setZero();
-        mesh.p.setZero();
-        mesh.p_prime.setZero();
-        mesh.p_star.setZero();
+    //初始化
+    mesh.u0.setZero();
+    mesh.v0.setZero();
+    mesh.u_star.setZero();
+    mesh.v_star.setZero();
+    mesh.u_face.setZero();
+    mesh.v_face.setZero(); 
+    mesh.u.setZero();
+    mesh.v.setZero();
+    mesh.p.setZero();
+    mesh.p_prime.setZero();
+    mesh.p_star.setZero();
+
+    //设置初始场
+    loadMeshDataFromSteady(mesh, rank);
 
 
-        //设置初始场
-  
-   //设置网格参数
+    
+
+   
    int nx0,ny0;
    nx0=mesh.nx;
    ny0=mesh.ny;
-
-
-    //初始化建立u v p的方程
+    //建立u v p的方程
     Equation equ_u(mesh);
     Equation equ_v(mesh);
     Equation equ_p(mesh);
-
-    //残差初始化
+    
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
-  
+    
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
-   
 
 
-    //piso算法外循环
+   double alpha_p = 0.5; // 压力松弛因子
+   double alpha_uv = 0.7; // 动量松弛因子
+   int inter=0;
+
+
     for (int i = 0; i <= timesteps; ++i) { 
         
        if(rank==0){ cout<<"时间步长 "<< i <<std::endl;}
         // 切换到当前编号文件夹
       
-        //piso内循环轮数 矫正2次压力
-       int max_outer_iterations=3;
-          
+       //记录上一个时间步长的u v
+       inter++;
+       int max_outer_iterations=30;
+           //simple算法迭代
   
-        
-        //归一化初始残差
+        MPI_Barrier(MPI_COMM_WORLD);
         double init_l2_norm_x = -1.0;
        double init_l2_norm_y = -1.0;
-       
-      
-        // 同步 dx 和 dy 给所有进程
-    MPI_Bcast(&dx, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-       double l2_norm_x, l2_norm_y;
-       //初始化u v方向的方程
-       equ_v.initializeToZero();
-       equ_u.initializeToZero();
-
-       //离散动量方程
-       momentum_function_PISO(mesh,equ_u,equ_v,mu,dt);
-      
-
-
-       //组装动量方程
-       equ_u.build_matrix();
-       equ_v.build_matrix();
-
-  
-        
-       //3求解线性方程组
-       
-      
-    
-       //生成并初始化解向量
-       VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
-       x_v.setZero();
-       y_v.setZero();
-
-       //求解u的动量方程 cg求解器
-      CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-2,15,rank,num_procs,l2_norm_x);
-      
-       //求解v的动量方程 cg求解器
-       CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-2,15,rank,num_procs,l2_norm_y);
-     
-
-       //将解向量写回矩阵场
-       vectorToMatrix(x_v,mesh.u,mesh);
-       
-       vectorToMatrix(y_v,mesh.v,mesh);
-    
-       
-       
-       
-
-     
-       
-        //数据交换 交换u v 和矩阵主对角元系数ap
-       exchangeColumns(mesh.u, rank, num_procs);
-       
-       exchangeColumns(mesh.v, rank, num_procs);
-       
-       exchangeColumns(equ_u.A_p, rank, num_procs);
-        
-
-
-        //piso算法压力修正循环
+       double init_l2_norm_p = -1.0;
     for(int n=1;n<=max_outer_iterations;n++) {
+        MPI_Barrier(MPI_COMM_WORLD);
+        //1离散动量方程 
+        double l2_norm_x, l2_norm_y;
+        mesh.u.setZero();
+        mesh.v.setZero();
+        equ_v.initializeToZero();
+        equ_u.initializeToZero();
+    
+        momentum_function_unsteady(mesh,equ_u,equ_v,mu,dt,alpha_uv);
+        equ_u.build_matrix();
+        equ_v.build_matrix();
+
+
+    
+         //3求解线性方程组
+        double epsilon_uv=0.01;
+       
+             // 同步 dx 和 dy 给所有进程
+    
+        VectorXd x_v(mesh.internumber),y_v(mesh.internumber);
+        x_v.setZero();
+        y_v.setZero();
+     
+       CG_parallel(equ_u,mesh,equ_u.source,x_v,1e-5,15,rank,num_procs,l2_norm_x);
         
         
+        CG_parallel(equ_v,mesh,equ_v.source,y_v,1e-5,15,rank,num_procs,l2_norm_y);
+      
+        vectorToMatrix(x_v,mesh.u,mesh);
+        vectorToMatrix(y_v,mesh.v,mesh);
+       
+        
+
+
+       
+
+      
+        
+         
+
+       
+        exchangeColumns(mesh.u, rank, num_procs);
+    
+        exchangeColumns(mesh.v, rank, num_procs);
+
+        exchangeColumns(equ_u.A_p, rank, num_procs);
+         
+       
         //cell中心速度插值到面 动量插值
         face_velocity(mesh ,equ_u);
         
         MPI_Barrier(MPI_COMM_WORLD);
-        
+
         double epsilon_p=1e-5;
 
         //初始化压力修正方程
         equ_p.initializeToZero();
-
+        
         //离散压力修正方程
         pressure_function(mesh, equ_p, equ_u);
        
@@ -480,41 +430,30 @@ delete[] all_strings;
       
 
         //求解压力修正方程
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,80,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,100,rank,num_procs,l2_norm_p);
      
         vectorToMatrix(p_v,mesh.p_prime,mesh);
        
         
-         
-
+         MPI_Barrier(MPI_COMM_WORLD);
+         exchangeColumns(mesh.p_prime, rank, num_procs); 
+         MPI_Barrier(MPI_COMM_WORLD);
         //压力修正
-        correct_pressure(mesh,equ_u,0.3);
-        exchangeColumns(mesh.p_prime, rank, num_procs); 
+         correct_pressure(mesh,equ_u,alpha_p);
+        
         
         //速度修正
-        correct_velocity(mesh,equ_u);
+         correct_velocity(mesh,equ_u);
        
         
         
         //更新压力 速度 并交换数值
         mesh.p = mesh.p_star;
-        mesh.u = mesh.u_star;
-        mesh.v = mesh.v_star;
         
-  
         
-        exchangeColumns(mesh.u, rank, num_procs);
-       
-
-        exchangeColumns(mesh.v, rank, num_procs);
-       
+        MPI_Barrier(MPI_COMM_WORLD);
         exchangeColumns(mesh.p, rank, num_procs);
-        
-        double init_l2_norm_p = -1.0;
-      
-      
-        
-       
+        MPI_Barrier(MPI_COMM_WORLD);
        // 记录初始残差（仅第一次迭代）
 if (n == 1) {
     init_l2_norm_x = l2_norm_x;
@@ -561,21 +500,19 @@ if(global_converged) {
     MPI_Barrier(MPI_COMM_WORLD);
     }
     //时间推进
-    saveMeshData(mesh,rank);
-    mesh.u0 = mesh.u;
-    mesh.v0 = mesh.v;
+    if (i % 2 == 0) {
+       saveMeshData(mesh, rank);
     }
-    
+   
+    mesh.u0 = mesh.u_star;
+    mesh.v0 = mesh.v_star;
+    }
+    saveMeshData(mesh, rank);
    
     // 最后显示实际计算总耗时
     auto total_elapsed_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time0).count();
-    if (rank==0)
-    {
-        std::cout << "\n计算完成 总耗时: " << total_elapsed_time << "秒" << std::endl;
+    std::cout << "\n计算完成 总耗时: " << total_elapsed_time << "秒" << std::endl;
   
-    }
-    
-    
     saveMeshData(mesh,rank);
     MPI_Finalize();
     

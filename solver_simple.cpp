@@ -138,19 +138,17 @@ void saveMeshData(const Mesh& mesh, int rank, const std::string& timestep_folder
 }
 
 // 计算压力松弛因子（Pressure Relaxation Factor）
-double computePressureRelaxationFactor(int iter) {
+double computePressureRelaxationFactor(double lp) {
     double factor;
 
-    if (iter < 700) {
-        factor = 0.05;  // 前 0-1000 次迭代，固定 0.01
+    if (lp > 1e-3) {
+        factor = 0.1;  
     } else {
-        factor = 0.1;  // 100 次之后，固定 0.25
+        factor = 0.3;  
     }
 
     return factor;
 }
-
-
 
 
 
@@ -198,6 +196,10 @@ double mu;
      // 初始化MPI环境
      MPI_Init(&argc, &argv);
      MPI_Barrier(MPI_COMM_WORLD);
+       // 获取进程信息
+    int rank, num_procs;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
      readParams(mesh_folder, dx, dy);
 
              // 同步 dx 和 dy 给所有进程
@@ -205,11 +207,94 @@ double mu;
      MPI_Bcast(&dy, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 
+    // 同步字符串长度
+int folder_length;
+if (rank == 0) folder_length = mesh_folder.size();
+MPI_Bcast(&folder_length, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
+// 同步字符串内容
+char* folder_cstr = new char[folder_length + 1];
+if (rank == 0) strcpy(folder_cstr, mesh_folder.c_str());
+MPI_Bcast(folder_cstr, folder_length + 1, MPI_CHAR, 0, MPI_COMM_WORLD);
+if (rank != 0) mesh_folder = std::string(folder_cstr);
+delete[] folder_cstr;
+
+// 广播参数
+MPI_Bcast(&dt, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+MPI_Bcast(&timesteps, 1, MPI_INT, 0, MPI_COMM_WORLD);
+MPI_Bcast(&mu, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+MPI_Bcast(&n_splits, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+
+
+
+// 检查浮点变量是否一致（dx, dy, dt, mu）
+double local_vals[4] = { dx, dy, dt, mu };
+double global_max[4], global_min[4];
+
+MPI_Allreduce(local_vals, global_max, 4, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+MPI_Allreduce(local_vals, global_min, 4, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+
+// 检查整型变量是否一致（timesteps, n_splits）
+int local_ints[2] = { timesteps, n_splits };
+int global_int_max[2], global_int_min[2];
+
+MPI_Allreduce(local_ints, global_int_max, 2, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+MPI_Allreduce(local_ints, global_int_min, 2, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+
+// 字符串比较（mesh_folder）
+int folder_match = 1;
+std::string expected_folder = mesh_folder;
+int folder_length_check = expected_folder.size();
+char* local_str = new char[folder_length_check + 1];
+strcpy(local_str, expected_folder.c_str());
+
+char* all_strings = new char[(folder_length_check + 1) * num_procs];
+MPI_Allgather(local_str, folder_length_check + 1, MPI_CHAR,
+              all_strings, folder_length_check + 1, MPI_CHAR,
+              MPI_COMM_WORLD);
+
+for (int i = 0; i < num_procs; ++i) {
+    if (strcmp(local_str, &all_strings[i * (folder_length_check + 1)]) != 0) {
+        folder_match = 0;
+        break;
+    }
+}
+
+int global_folder_match;
+MPI_Allreduce(&folder_match, &global_folder_match, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+
+// 打印检查结果（仅0号进程）
+if (rank == 0) {
+    bool float_consistent = true;
+    for (int i = 0; i < 4; ++i)
+        if (fabs(global_max[i] - global_min[i]) > 1e-12) float_consistent = false;
+
+    bool int_consistent = (global_int_max[0] == global_int_min[0]) && (global_int_max[1] == global_int_min[1]);
+
+    if (!float_consistent || !int_consistent || global_folder_match == 0) {
+        std::cerr << " MPI同步变量不一致！终止运行。\n";
+        if (!float_consistent)
+            std::cerr << "  → 某些浮点参数不同步 (dx/dy/dt/mu)\n";
+        if (!int_consistent)
+            std::cerr << "  → timesteps 或 n_splits 不一致\n";
+        if (global_folder_match == 0)
+            std::cerr << "  → mesh_folder 不一致\n";
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    } else {
+        std::cout << " 所有进程同步变量一致，当前值为：\n";
+        std::cout << "  dx = " << dx << ", dy = " << dy << "\n";
+        std::cout << "  dt = " << dt << ", mu = " << mu << "\n";
+        std::cout << "  timesteps = " << timesteps << ", n_splits = " << n_splits << "\n";
+        std::cout << "  mesh_folder = " << mesh_folder << "\n";
+    }
+}
+
+delete[] local_str;
+delete[] all_strings;
     // 加载原始网格
     Mesh original_mesh(mesh_folder);
-    // 获取进程信息
-    int rank, num_procs;
+   
     // 垂直分割网格
     std::vector<Mesh> sub_meshes = splitMeshVertically(original_mesh, n_splits);
     if (rank==0)
@@ -225,9 +310,7 @@ double mu;
     
    
    
-    
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+   
 
     // 检查进程数是否匹配
     if(num_procs != n_splits) {
@@ -284,13 +367,13 @@ double mu;
    double l2x = 0.0, l2y = 0.0, l2p = 0.0;
     
    auto start_time0 = chrono::steady_clock::now();  // 开始计时
-   double alpha_p = 0.05; // 压力松弛因子
-   double alpha_uv = 0.3; // 动量松弛因子
-
+   double alpha_p = 0.3; // 压力松弛因子
+   double alpha_uv = 0.5; // 动量松弛因子
+ 
    int inter=0;
        //记录上一个时间步长的u v
       
-       int max_outer_iterations=3000;
+       int max_outer_iterations=4000;
            //simple算法迭代
   
         MPI_Barrier(MPI_COMM_WORLD);
@@ -299,7 +382,8 @@ double mu;
        double init_l2_norm_p = -1.0;
     for(int n=1;n<=max_outer_iterations;n++) {
 
-
+         //alpha_p=computePressureRelaxationFactor(l2_norm_p);
+        
         inter++;
          MPI_Barrier(MPI_COMM_WORLD);
         //1离散动量方程 
@@ -347,9 +431,10 @@ double mu;
     
         exchangeColumns(mesh.v, rank, num_procs);
 
+ 
         exchangeColumns(equ_u.A_p, rank, num_procs);
          
-       
+        MPI_Barrier(MPI_COMM_WORLD);
         //cell中心速度插值到面 动量插值
         face_velocity(mesh ,equ_u);
         
@@ -359,24 +444,32 @@ double mu;
 
         //初始化压力修正方程
         equ_p.initializeToZero();
-
-        //离散压力修正方程
+ 
+      
         pressure_function(mesh, equ_p, equ_u);
-       
+        MPI_Barrier(MPI_COMM_WORLD);
         // 组装压力修正方程
+        
         equ_p.build_matrix();
+        MPI_Barrier(MPI_COMM_WORLD);
         //求解压力修正方程
         VectorXd p_v(mesh.internumber);
 
         //初始压力修正场
+
         mesh.p_prime.setZero();
 
 
         p_v.setZero();
       
 
+        
+
+
+
+        MPI_Barrier(MPI_COMM_WORLD);
         //求解压力修正方程
-        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,100,rank,num_procs,l2_norm_p);
+        CG_parallel(equ_p,mesh,equ_p.source,p_v,1e-2,200,rank,num_procs,l2_norm_p);
      
         vectorToMatrix(p_v,mesh.p_prime,mesh);
        
@@ -385,7 +478,7 @@ double mu;
          exchangeColumns(mesh.p_prime, rank, num_procs); 
          MPI_Barrier(MPI_COMM_WORLD);
         //压力修正
-         correct_pressure(mesh,equ_u,0.3);
+         correct_pressure(mesh,equ_u,alpha_p);
         
         
         //速度修正
@@ -448,8 +541,12 @@ if(global_converged) {
         std::cout << "所有进程达到收敛条件" << std::endl;
     }
     break;
-}
-        saveMeshData(mesh,rank);
+}    
+    
+     //时间推进
+     if (n % 5 == 0) {
+        saveMeshData(mesh, rank);
+     }
     MPI_Barrier(MPI_COMM_WORLD);
     }
     

@@ -143,7 +143,7 @@ void exchangeColumns(MatrixXd& matrix, int rank, int num_procs) {
         sendbuf_right[i * num_cols_per_side + 1] = matrix(i, cols - 3);
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    
     // 建立 persistent communicator topology（cartesian 拓扑）
     MPI_Comm cart_comm;
     int dims[1] = { num_procs };
@@ -350,6 +350,8 @@ global_r_norm = global_new_r_norm;
 r0 = std::sqrt(global_r_norm);
 iter++;
 MPI_Barrier(MPI_COMM_WORLD);
+
+
 }
 
 MPI_Barrier(MPI_COMM_WORLD);
